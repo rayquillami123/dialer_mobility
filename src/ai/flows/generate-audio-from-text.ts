@@ -3,24 +3,12 @@
  * @fileOverview A Genkit flow for generating audio from text using a Text-to-Speech (TTS) model.
  *
  * - generateAudioFromText - A function that converts a given text string into speech audio.
- * - GenerateAudioFromTextInput - The input type for the generateAudioFromText function (string).
- * - GenerateAudioFromTextOutput - The return type for the generateAudioFromText function, containing the audio data URI.
  */
 
 import { ai } from '@/ai/genkit';
-import { z } from 'genkit';
 import { googleAI } from '@genkit-ai/googleai';
 import wav from 'wav';
-
-// Define the input schema as a simple string
-export const GenerateAudioFromTextInputSchema = z.string();
-export type GenerateAudioFromTextInput = z.infer<typeof GenerateAudioFromTextInputSchema>;
-
-// Define the output schema for the audio data
-export const GenerateAudioFromTextOutputSchema = z.object({
-  media: z.string().describe("The generated audio as a data:audio/wav;base64,... URI."),
-});
-export type GenerateAudioFromTextOutput = z.infer<typeof GenerateAudioFromTextOutputSchema>;
+import { GenerateAudioFromTextInputSchema, GenerateAudioFromTextOutputSchema, type GenerateAudioFromTextInput, type GenerateAudioFromTextOutput } from './schemas';
 
 
 /**

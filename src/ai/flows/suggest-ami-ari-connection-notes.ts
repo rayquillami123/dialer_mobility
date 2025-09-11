@@ -3,24 +3,11 @@
  * @fileOverview This file defines a Genkit flow for suggesting notes for AMI/ARI connections.
  *
  * - suggestAMIARIConnectionNotes - A function that generates notes for AMI/ARI connections.
- * - SuggestAMIARIConnectionNotesInput - The input type for the suggestAMIARIConnectionNotes function.
- * - SuggestAMIARIConnectionNotesOutput - The return type for the suggestAMIARIConnectionNotes function.
  */
 
 import {ai} from '@/ai/genkit';
-import {z} from 'genkit';
+import { SuggestAMIARIConnectionNotesInputSchema, SuggestAMIARIConnectionNotesOutputSchema, type SuggestAMIARIConnectionNotesInput, type SuggestAMIARIConnectionNotesOutput } from './schemas';
 
-const SuggestAMIARIConnectionNotesInputSchema = z.object({
-  platform: z.string().describe('The platform for which AMI/ARI connection notes are requested (e.g., Asterisk, FreePBX).'),
-  version: z.string().describe('The version of the platform.'),
-  purpose: z.string().describe('The intended purpose of the AMI/ARI connection (e.g., monitoring, control).'),
-});
-export type SuggestAMIARIConnectionNotesInput = z.infer<typeof SuggestAMIARIConnectionNotesInputSchema>;
-
-const SuggestAMIARIConnectionNotesOutputSchema = z.object({
-  notes: z.string().describe('Notes for AMI/ARI connection, including configuration steps and security considerations.'),
-});
-export type SuggestAMIARIConnectionNotesOutput = z.infer<typeof SuggestAMIARIConnectionNotesOutputSchema>;
 
 export async function suggestAMIARIConnectionNotes(input: SuggestAMIARIConnectionNotesInput): Promise<SuggestAMIARIConnectionNotesOutput> {
   return suggestAMIARIConnectionNotesFlow(input);

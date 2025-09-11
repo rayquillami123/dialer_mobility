@@ -5,14 +5,11 @@
  *
  * The flow takes no input and returns a string containing integration notes for developers.
  * - generateIntegrationNotes - A function that generates integration notes.
- * - GenerateIntegrationNotesOutput - The return type for the generateIntegrationNotes function.
  */
 
 import {ai} from '@/ai/genkit';
-import {z} from 'genkit';
+import { GenerateIntegrationNotesOutputSchema, type GenerateIntegrationNotesOutput } from './schemas';
 
-const GenerateIntegrationNotesOutputSchema = z.string().describe('Integration notes for trunk management.');
-export type GenerateIntegrationNotesOutput = z.infer<typeof GenerateIntegrationNotesOutputSchema>;
 
 export async function generateIntegrationNotes(): Promise<GenerateIntegrationNotesOutput> {
   return generateIntegrationNotesFlow();
