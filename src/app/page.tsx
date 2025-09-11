@@ -9,12 +9,13 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Switch } from '@/components/ui/switch';
-import { Download, PhoneCall, Play, Plus, Settings, Upload, User, Activity, Database, Factory, PhoneIncoming, PhoneOutgoing, PhoneOff, FileDown, Bot, Code } from 'lucide-react';
+import { Download, PhoneCall, Play, Plus, Settings, Upload, User, Activity, Database, Factory, PhoneIncoming, PhoneOutgoing, PhoneOff, FileDown, Bot, Code, Volume2 } from 'lucide-react';
 import { generateIntegrationNotes } from '@/ai/flows/generate-integration-notes';
 import { AmiAriNotesForm, Trunk } from '@/lib/types';
 import { suggestAMIARIConnectionNotes } from '@/ai/flows/suggest-ami-ari-connection-notes';
 import { useForm, Controller } from 'react-hook-form';
 import { generateDeveloperIntegrationGuide } from '@/ai/flows/generate-developer-integration-guide';
+import { generateAudioFromText } from '@/ai/flows/generate-audio-from-text';
 
 /**
  * FRONTEND MVP – DIALER INTELIGENTE (Asterisk backend)
@@ -245,7 +246,7 @@ export default function DialerInteligenteApp() {
       <header className="sticky top-0 z-20 border-b bg-white/80 backdrop-blur">
         <div className="mx-auto max-w-7xl px-4 py-3 flex items-center gap-3">
           <div className="font-bold text-xl">Dialer Inteligente</div>
-          <Badge variant="secondary" className="ml-2">Asterisk Backend</Badge>
+          <Badge variant="secondary" className="ml-2">FreeSWITCH Backend</Badge>
           <div className="ml-auto flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={() => setActive('dashboard')}>
               <Activity className="mr-2 h-4 w-4"/> KPI Live
@@ -1080,14 +1081,58 @@ function ScriptsDesigner() {
 
 // -------------------------- Biblioteca de Audio --------------------------
 function AudioLibrary() {
+  const [text, setText] = useState('Hola, te llamamos de MobilityTech para ofrecerte una solución de contact center.');
+  const [audioData, setAudioData] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleGenerateAudio = async () => {
+    setLoading(true);
+    setAudioData('');
+    try {
+      const result = await generateAudioFromText(text);
+      if (result.media) {
+        setAudioData(result.media);
+      } else {
+        console.error('No audio data returned');
+        setAudioData('');
+      }
+    } catch (error) {
+      console.error(error);
+      setAudioData('');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <Card className="shadow-sm">
       <CardHeader>
-        <CardTitle>Audio / TTS</CardTitle>
-        <CardDescription>Sube audios, genera TTS y asígnalos a campañas/IVR.</CardDescription>
+        <CardTitle>Generador de Audio (TTS)</CardTitle>
+        <CardDescription>Crea prompts de audio para tus campañas, IVRs y mensajes usando IA. Escribe el texto y genera el audio para escucharlo.</CardDescription>
       </CardHeader>
-      <CardContent>
-        <div className="text-slate-500 text-sm">Placeholder: upload + preview.</div>
+      <CardContent className="space-y-4">
+        <div>
+          <Label htmlFor="tts-input">Texto a convertir</Label>
+          <Textarea 
+            id="tts-input"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder="Escribe el texto para generar el audio..."
+            rows={4}
+          />
+        </div>
+        <Button onClick={handleGenerateAudio} disabled={loading || !text.trim()}>
+          <Volume2 className="mr-2 h-4 w-4" />
+          {loading ? 'Generando...' : 'Generar Audio'}
+        </Button>
+        {audioData && (
+          <div className="mt-4">
+             <Label>Resultado</Label>
+            <audio controls src={audioData} className="w-full">
+              Tu navegador no soporta el elemento de audio.
+            </audio>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -1117,8 +1162,8 @@ function Integrations() {
 
   const { control, handleSubmit, formState: { errors } } = useForm<AmiAriNotesForm>({
     defaultValues: {
-      platform: 'asterisk',
-      version: '18',
+      platform: 'freeswitch',
+      version: '1.10',
       purpose: 'real-time monitoring and call control'
     }
   });
@@ -1170,9 +1215,9 @@ function Integrations() {
     <div className="space-y-6">
       <Card className="shadow-sm">
         <CardHeader>
-          <CardTitle>Guía de Integración para Desarrolladores</CardTitle>
+          <CardTitle>Guía de Integración para Desarrolladores (FreeSWITCH)</CardTitle>
           <CardDescription>
-            Genere una guía técnica completa para integrar este frontend con un backend de Asterisk, basado en las especificaciones detalladas del proyecto.
+            Genere una guía técnica completa para integrar este frontend con un backend de FreeSWITCH, basado en las especificaciones detalladas del proyecto.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -1212,7 +1257,7 @@ function Integrations() {
 
       <Card className="shadow-sm">
         <CardHeader>
-          <CardTitle>Sugerencias de Conexión AMI/ARI</CardTitle>
+          <CardTitle>Sugerencias de Conexión ESL (FreeSWITCH)</CardTitle>
           <CardDescription>
             Obtenga notas de configuración de IA para conectar su plataforma de telefonía.
           </CardDescription>
@@ -1229,8 +1274,8 @@ function Integrations() {
                     <Select onValueChange={field.onChange} defaultValue={field.value}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="asterisk">Asterisk</SelectItem>
                         <SelectItem value="freeswitch">FreeSWITCH</SelectItem>
+                        <SelectItem value="asterisk">Asterisk</SelectItem>
                         <SelectItem value="kamailio">Kamailio</SelectItem>
                         <SelectItem value="other">Otro</SelectItem>
                       </SelectContent>
@@ -1243,7 +1288,7 @@ function Integrations() {
                 <Controller
                   name="version"
                   control={control}
-                  render={({ field }) => <Input {...field} placeholder="p.ej. 18.x" />}
+                  render={({ field }) => <Input {...field} placeholder="p.ej. 1.10.x" />}
                 />
               </div>
               <div>
@@ -1262,7 +1307,7 @@ function Integrations() {
           </form>
           {amiAriNotes && (
             <div className="mt-4 p-4 border rounded-xl bg-slate-50">
-              <h3 className="font-semibold mb-2">Notas de Conexión AMI/ARI Sugeridas:</h3>
+              <h3 className="font-semibold mb-2">Notas de Conexión ESL Sugeridas:</h3>
               <pre className="whitespace-pre-wrap text-sm">{amiAriNotes}</pre>
             </div>
           )}
