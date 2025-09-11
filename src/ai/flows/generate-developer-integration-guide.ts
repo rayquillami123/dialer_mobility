@@ -21,7 +21,7 @@ const prompt = ai.definePrompt({
 
 Your task is to take the following comprehensive technical blueprint for a professional dialer system and generate a complete, professional, and developer-ready integration guide. The guide should be structured logically, starting with a high-level architectural overview and then drilling down into specific implementation details for each component, including module configuration, API contracts, database schemas, and operational logic (telemetry, KPIs, etc.). The target audience is a skilled backend engineering team proficient in Node.js/Go, SQL, and VoIP technologies.
 
-**Dialer Technical Blueprint & Telemetry Plan:**
+**Dialer Technical Blueprint: FreeSWITCH Edition**
 
 **1. Core Architecture ("FreeSWITCH-first"):**
    - **Engine:** FreeSWITCH with key modules enabled.
@@ -185,7 +185,106 @@ Your task is to take the following comprehensive technical blueprint for a profe
      GROUP BY campaign_id;
      \`\`\`
 
-**10. Implementation Roadmap & "Definition of Done":**
+**10. FreeSWITCH Configuration Templates:**
+
+**A. event_socket.conf.xml (for ESL):**
+\`\`\`xml
+<configuration name="event_socket.conf" description="Event Socket">
+  <settings>
+    <param name="listen-ip" value="127.0.0.1"/>
+    <param name="listen-port" value="8021"/>
+    <param name="password" value="CAMBIA_ESTA_CLAVE_SUPER_SECRETA"/>
+    <param name="apply-inbound-acl" value="loopback.auto"/>
+    <param name="stop-on-bind-error" value="true"/>
+  </settings>
+</configuration>
+\`\`\`
+**Note:** For external connections, change \`listen-ip\` to \`0.0.0.0\` and configure a network list in \`acl.conf.xml\`.
+
+**B. callcenter.conf.xml (for ACD/Queues):**
+\`\`\`xml
+<configuration name="callcenter.conf" description="Callcenter / ACD">
+  <settings>
+    <param name="debug" value="0"/>
+  </settings>
+  <queues>
+    <queue name="sales">
+      <param name="strategy" value="longest-idle-agent"/>
+      <param name="moh-sound" value="local_stream://moh"/>
+      <param name="max-wait-time" value="3600"/>
+      <param name="max-wait-time-with-no-agent" value="30"/>
+      <param name="tier-rules-apply" value="true"/>
+      <param name="tier-rule-wait-second" value="15"/>
+      <param name="discard-abandoned-after" value="5"/>
+      <param name="abandoned-resume-allowed" value="false"/>
+      <param name="wrap-up-time" value="3"/>
+    </queue>
+  </queues>
+  <agents>
+    <agent name="1001" type="callback" contact="user/1001" status="Logged Out" max-no-answer="3" wrap-up-time="3"/>
+    <agent name="1002" type="callback" contact="user/1002" status="Logged Out" max-no-answer="3" wrap-up-time="3"/>
+  </agents>
+  <tiers>
+    <tier agent="1001" queue="sales" level="1" position="1"/>
+    <tier agent="1002" queue="sales" level="1" position="1"/>
+  </tiers>
+</configuration>
+\`\`\`
+**Routing:** Use \`<action application="callcenter" data="sales"/>\` in the dialplan to route calls to this queue.
+
+**C. json_cdr.conf.xml (for CDRs via HTTP):**
+\`\`\`xml
+<configuration name="json_cdr.conf" description="JSON CDR to HTTP">
+  <settings>
+    <param name="log-dir" value="/var/log/freeswitch/json_cdr"/>
+    <param name="legs" value="ab"/>
+    <param name="url" value="https://api.mi-dialer.com/cdr"/>
+    <param name="auth-scheme" value="Bearer"/>
+    <param name="auth-credential" value="PON_AQUI_TU_TOKEN"/>
+    <param name="retries" value="3"/>
+    <param name="delay" value="5"/>
+    <param name="log-b-leg" value="true"/>
+    <param name="template" value="default"/>
+  </settings>
+  <templates>
+    <template name="default"><![CDATA[
+{
+  "uuid": "\${uuid}",
+  "call_id": "\${sip_call_id}",
+  "direction": "\${direction}",
+  "start_stamp": "\${start_stamp}",
+  "answer_stamp": "\${answer_stamp}",
+  "end_stamp": "\${end_stamp}",
+  "duration": \${duration},
+  "billsec": \${billsec},
+  "hangup_cause": "\${hangup_cause}",
+  "sip_hangup_cause": "\${sip_hangup_cause}",
+  "caller_id_name": "\${caller_id_name}",
+  "caller_id_number": "\${caller_id_number}",
+  "destination_number": "\${destination_number}",
+  "campaign_id": "\${X_CAMPAIGN}",
+  "list_id": "\${X_LIST}",
+  "lead_id": "\${X_LEAD}",
+  "trunk_id": "\${X_TRUNK}",
+  "queue": "\${cc_queue}",
+  "agent_id": "\${cc_agent}",
+  "recording_url": "\${record_session_url}",
+  "amd_label": "\${AMD_LABEL}",
+  "amd_confidence": "\${AMD_CONFIDENCE}",
+  "amd_latency_ms": "\${AMD_LATENCY_MS}",
+  "progress_ms": "\${progress_ms}",
+  "early_media_ms": "\${early_media_ms}",
+  "network_addr": "\${network_addr}",
+  "read_codec": "\${read_codec}",
+  "write_codec": "\${write_codec}"
+}
+      ]]\>
+    </template>
+  </templates>
+</configuration>
+\`\`\`
+
+**11. Implementation Roadmap & "Definition of Done":**
    - **P0: Live Data:** Enable \`mod_event_socket\`, connect an ESL client, and stream real-time events to the UI dashboard.
    - **P1: Core Call Flow:** Implement \`originate\` with variables, dialplan logic for bridging, and extended CDR logging via \`mod_json_cdr\` or \`mod_cdr_pg_csv\`.
    - **P2: Intelligent AMD:** Integrate \`mod_audio_fork\` with an AI service for HUMAN/MACHINE classification and route calls accordingly. Use \`mod_avmd\` for simple voicemail drops.
