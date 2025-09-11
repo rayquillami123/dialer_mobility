@@ -1,11 +1,12 @@
-export interface Trunk {
-  id: string;
-  name: string;
-  host: string;
-  codecs: string;
-  cliRoute: string;
-  maxCPS: number;
-  enabled: boolean;
+export interface Trunk { 
+  id: string; 
+  name: string; 
+  host: string; 
+  username?: string; 
+  codecs?: string; 
+  cliRoute?: 'CLI' | 'CC'; 
+  maxCPS?: number; 
+  enabled: boolean; 
 }
 
 export type AmiAriNotesForm = {

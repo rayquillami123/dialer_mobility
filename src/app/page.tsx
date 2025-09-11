@@ -1,209 +1,1121 @@
-"use client";
+'use client';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
+import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from '@/components/ui/select';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { Switch } from '@/components/ui/switch';
+import { Download, PhoneCall, Play, Plus, Settings, Upload, User, Activity, Database, Factory, PhoneIncoming, PhoneOutgoing, PhoneOff, FileDown } from 'lucide-react';
 
-import { useState } from "react";
-import type { Trunk } from "@/lib/types";
-import { initialTrunks } from "@/lib/data";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
-import { Badge } from "@/components/ui/badge";
-import { PlusCircle, Plus, MoreVertical, Pencil, Trash2 } from "lucide-react";
-import { Logo } from "@/components/icons";
-import { useToast } from "@/hooks/use-toast";
-import { IntegrationNotesGenerator } from "@/components/ai/integration-notes-generator";
-import { AmiAriNotesGenerator } from "@/components/ai/ami-ari-notes-generator";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+/**
+ * FRONTEND MVP – DIALER INTELIGENTE (Asterisk backend)
+ * ----------------------------------------------------
+ * Arquitectura UI (sin backend):
+ * - Dashboard en tiempo real (KPIs + monitor de llamadas)
+ * - Campañas (CRUD + configuración por tipo: Predictive, Power, Preview, Press-1)
+ * - Listas / Leads (carga CSV, validación básica, preview)
+ * - Monitor en tiempo real (tabla de llamadas con estados y AMD)
+ * - Escritorio de Agente (mock: contestar/colgar; placeholder para WebRTC/SIP)
+ * - Reportes (exportar CSV de CDR/llamadas)
+ * - Ajustes (Troncales/Proveedores + parámetros globales)
+ *
+ * Hooks a implementar en backend (sugeridos):
+ * - SSE/WS:  GET /api/realtime/calls (stream de llamadas)  // también ARI websockets
+ * - REST:    POST /api/campaigns, GET /api/campaigns, PUT /api/campaigns/:id, PATCH /status
+ * - REST:    POST /api/lists/upload  (devuelve listId)  |  GET /api/lists/:id
+ * - REST:    GET /api/reports/cdr?from&to&campaignId  (paginado + CSV)
+ * - REST:    GET /api/trunks, POST /api/trunks
+ * - REST:    POST /api/agent/actions (answer, hangup, transfer)
+ * - AMI/ARI: Bridge, originate, channel vars (X-AMD, X-CAMPAIGN, etc.)
+ *
+ * AMD (AI):
+ * - Opciones UI: "Asterisk AMD" | "AI-ML" | "Hybrid".  Parámetros: silenceThreshold, initialWordMs,
+ *   betweenWordsMs, maxAnalysisMs, fax/SIT, y umbrales de confianza.  El backend debe decidir < 1s.
+ * - Etiquetas esperadas: HUMAN | VOICEMAIL | FAX | SIT | NOANSWER | UNKNOWN (+ confidence)
+ * - Enrutamiento: sólo HUMAN -> agente; los demás -> reglas (mensaje, colgar, reintentar, lista de proveedor)
+ *
+ * Cumplimiento sugerido (no implementado en UI): caps de abandono (%), pacing ratio, STIR/SHAKEN,
+ * listas DNC, ventanas horarias por timezone, registro de consentimiento.
+ */
 
-export default function Home() {
-  const [trunks, setTrunks] = useState<Trunk[]>(initialTrunks);
-  const [name, setName] = useState("");
-  const [host, setHost] = useState("");
-  const [codecs, setCodecs] = useState("");
-  const [cliRoute, setCliRoute] = useState("CLI");
-  const [maxCPS, setMaxCPS] = useState(10);
+// -------------------------- Tipos base --------------------------
 
-  const { toast } = useToast();
+type CampaignType = 'Predictive' | 'Power' | 'Preview' | 'Press1';
 
-  const addTrunk = () => {
-    if (!name || !host || !codecs || !cliRoute) {
-       toast({
-        title: "Missing Fields",
-        description: "Please fill out all fields to add a trunk.",
-        variant: "destructive",
-      });
-      return;
-    }
-    const newTrunk: Trunk = {
-      id: new Date().toISOString(),
-      name,
-      host,
-      codecs,
-      cliRoute,
-      maxCPS,
-      enabled: true,
+type AMDEngine = 'Asterisk' | 'AI-ML' | 'Hybrid';
+
+type CallStatus =
+  | 'Dialing'
+  | 'EarlyMedia'
+  | 'Ringing'
+  | 'Connected'
+  | 'Human'
+  | 'Voicemail'
+  | 'Fax'
+  | 'SIT'
+  | 'NoAnswer'
+  | 'Abandoned'
+  | 'Ended';
+
+interface Campaign {
+  id: string;
+  name: string;
+  type: CampaignType;
+  listId?: string;
+  trunkId?: string;
+  callerIdStrategy?: 'Static' | 'ByState' | 'PoolRotation';
+  callerIdValue?: string; // si Static
+  pacingRatio?: number; // p.ej. 2.0
+  maxChannels?: number;
+  dropRateCapPct?: number; // % abandono permitido
+  abandonMessage?: string; // TTS/locución para abandonos
+  amdEngine: AMDEngine;
+  amd: {
+    enabled: boolean;
+    confidenceMin: number; // 0..1
+    analyzeMs: number; // ventana máxima análisis
+    detectFax: boolean;
+    detectSIT: boolean;
+    asteriskParams?: {
+      initialSilence: number;
+      greeting: number;
+      afterGreetingSilence: number;
+      totalAnalysisTime: number;
+      minWordLength: number;
+      betweenWordsSilence: number;
+      maximumNumberOfWords: number;
     };
-    setTrunks([newTrunk, ...trunks]);
-    toast({
-      title: "Trunk Created",
-      description: `The new trunk "${name}" has been added.`,
-    });
-    // Reset form
-    setName("");
-    setHost("");
-    setCodecs("");
-    setCliRoute("CLI");
-    setMaxCPS(10);
   };
-  
-  const handleDeleteTrunk = (trunkId: string) => {
-    const trunkToDelete = trunks.find(t => t.id === trunkId);
-    setTrunks(trunks.filter((t) => t.id !== trunkId));
-    toast({
-      title: "Trunk Deleted",
-      description: `The trunk "${trunkToDelete?.name}" has been removed.`,
-      variant: "destructive",
-    });
+  press1?: {
+    promptTTS: string;
+    digitToTransfer: string; // '1'
+    transferQueue: string;
+    noInputAction: 'Hangup' | 'Retry' | 'Voicemail';
   };
+  predictive?: {
+    targetOccupancyPct: number;
+    avgHandleTimeSec: number;
+  };
+  status: 'Draft' | 'Running' | 'Paused' | 'Completed';
+  createdAt: string;
+}
 
-  const handleToggleStatus = (trunkId: string, enabled: boolean) => {
-    setTrunks(
-      trunks.map((t) => (t.id === trunkId ? { ...t, enabled } : t))
-    );
-     toast({
-      title: "Status Updated",
-      description: `Trunk status has been changed to ${enabled ? 'enabled' : 'disabled'}.`,
-    });
-  };
+interface Lead {
+  id: string;
+  phone: string;
+  firstName?: string;
+  lastName?: string;
+  state?: string;
+  timezone?: string;
+  meta?: Record<string, any>;
+}
 
+interface LeadList { id: string; name: string; leads: Lead[]; createdAt: string; }
+
+interface Trunk { id: string; name: string; host: string; username?: string; codecs?: string; cliRoute?: 'CLI' | 'CC'; maxCPS?: number; enabled: boolean; }
+
+interface LiveCall {
+  id: string;
+  phone: string;
+  state?: string;
+  leadId?: string;
+  campaignId?: string;
+  trunkId?: string;
+  status: CallStatus;
+  amdLabel?: 'HUMAN' | 'VOICEMAIL' | 'FAX' | 'SIT' | 'NOANSWER' | 'UNKNOWN';
+  amdConfidence?: number;
+  agent?: string;
+  durationSec: number;
+  startedAt: string;
+}
+
+// -------------------------- Utilidades --------------------------
+
+const uid = () => Math.random().toString(36).slice(2, 10);
+
+function downloadCSV(filename: string, rows: any[]) {
+  if (!rows?.length) return;
+  const headers = Object.keys(rows[0]);
+  const csv = [headers.join(','), ...rows.map(r => headers.map(h => JSON.stringify(r[h] ?? '')).join(','))].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename; a.click(); URL.revokeObjectURL(url);
+}
+
+function parseCSV(text: string): any[] {
+  // Parser simple (no soporta comillas escapadas complejas)
+  const lines = text.split(/\r?\n/).filter(Boolean);
+  if (!lines.length) return [];
+  const headers = lines[0].split(',').map(h => h.trim());
+  return lines.slice(1).map(line => {
+    const cols = line.split(',');
+    const row: any = {};
+    headers.forEach((h, i) => (row[h] = (cols[i] ?? '').trim()));
+    return row;
+  });
+}
+
+// -------------------------- Shell --------------------------
+
+const sections = [
+  { id: 'dashboard', label: 'Dashboard', icon: Activity },
+  { id: 'campaigns', label: 'Campañas', icon: PhoneOutgoing },
+  { id: 'lists', label: 'Listas / Leads', icon: Database },
+  { id: 'realtime', label: 'Tiempo real', icon: PhoneCall },
+  { id: 'agent', label: 'Agente', icon: User },
+  { id: 'queues', label: 'Colas', icon: PhoneIncoming },
+  { id: 'dispositions', label: 'Disposiciones', icon: PhoneOff },
+  { id: 'scheduler', label: 'Agendador', icon: Play },
+  { id: 'providers', label: 'Proveedores', icon: Factory },
+  { id: 'compliance', label: 'Cumplimiento', icon: Settings },
+  { id: 'scripts', label: 'Guiones', icon: FileDown },
+  { id: 'audio', label: 'Audio TTS/Prompts', icon: Download },
+  { id: 'qa', label: 'Grabaciones & QA', icon: Activity },
+  { id: 'integrations', label: 'Integraciones', icon: Settings },
+  { id: 'audit', label: 'Auditoría', icon: Settings },
+  { id: 'reports', label: 'Reportes', icon: FileDown },
+  { id: 'settings', label: 'Ajustes', icon: Settings },
+] as const;
+
+export default function DialerInteligenteApp() {
+  const [active, setActive] = useState<(typeof sections)[number]['id']>('dashboard');
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [lists, setLists] = useState<LeadList[]>([]);
+  const [trunks, setTrunks] = useState<Trunk[]>([{
+    id: uid(), name: 'US-CLI-MAIN', host: 'sip.provider.net', codecs: 'ulaw,alaw', cliRoute: 'CLI', maxCPS: 20, enabled: true,
+  }]);
+  const [liveCalls, setLiveCalls] = useState<LiveCall[]>([]);
+  const [kpi, setKpi] = useState({ offered: 0, connected: 0, human: 0, voicemail: 0, avgAHT: 0 });
+
+  // Simulador de llamadas en tiempo real (placeholder del WS/ARI)
+  useEffect(() => {
+    const t = setInterval(() => {
+      // Decaimiento y actualización de KPIs simples
+      setLiveCalls(prev => prev
+        .map(c => ({ ...c, durationSec: c.status === 'Connected' || c.status === 'Human' ? c.durationSec + 1 : c.durationSec }))
+        .filter(c => !(c.status === 'Ended' && (Date.now() - new Date(c.startedAt).getTime()) > 15000))
+      );
+
+      if (Math.random() < 0.35) {
+        // simular nueva llamada
+        const statusPool: CallStatus[] = ['Dialing', 'Ringing', 'Connected', 'Voicemail', 'Fax', 'SIT', 'NoAnswer'];
+        const status = statusPool[Math.floor(Math.random() * statusPool.length)];
+        const amdMap: Record<string, LiveCall['amdLabel']> = {
+          'Connected': 'HUMAN',
+          'Voicemail': 'VOICEMAIL',
+          'Fax': 'FAX',
+          'SIT': 'SIT',
+          'NoAnswer': 'NOANSWER',
+          'Ringing': 'UNKNOWN',
+          'Dialing': 'UNKNOWN',
+          'EarlyMedia': 'UNKNOWN'
+        };
+        const c: LiveCall = {
+          id: uid(),
+          phone: '+1' + (2000000000 + Math.floor(Math.random()*700000000)).toString(),
+          status,
+          amdLabel: amdMap[status] ?? 'UNKNOWN',
+          amdConfidence: Math.random().toFixed(2) as unknown as number,
+          durationSec: 0,
+          startedAt: new Date().toISOString(),
+        };
+        setKpi(k => ({
+          offered: k.offered + 1,
+          connected: k.connected + (status === 'Connected' ? 1 : 0),
+          human: k.human + (status === 'Connected' ? 1 : 0),
+          voicemail: k.voicemail + (status === 'Voicemail' ? 1 : 0),
+          avgAHT: k.avgAHT ? Math.round((k.avgAHT + c.durationSec) / 2) : c.durationSec,
+        }));
+        setLiveCalls(prev => [c, ...prev].slice(0, 200));
+      }
+    }, 1000);
+    return () => clearInterval(t);
+  }, []);
 
   return (
-    <div className="flex flex-col min-h-screen bg-background text-foreground">
-      <header className="sticky top-0 z-10 flex items-center h-16 px-4 border-b shrink-0 bg-background/80 backdrop-blur-sm md:px-8">
-        <div className="flex items-center gap-3">
-          <Logo className="w-8 h-8 text-primary" />
-          <h1 className="text-xl font-bold tracking-tighter font-headline">
-            Dialer Mobilitytech
-          </h1>
+    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white text-slate-900">
+      <header className="sticky top-0 z-20 border-b bg-white/80 backdrop-blur">
+        <div className="mx-auto max-w-7xl px-4 py-3 flex items-center gap-3">
+          <div className="font-bold text-xl">Dialer Inteligente</div>
+          <Badge variant="secondary" className="ml-2">Asterisk Backend</Badge>
+          <div className="ml-auto flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => setActive('dashboard')}>
+              <Activity className="mr-2 h-4 w-4"/> KPI Live
+            </Button>
+            <Button size="sm" onClick={() => setActive('campaigns')}>
+              <Plus className="mr-2 h-4 w-4"/> Nueva campaña
+            </Button>
+          </div>
         </div>
       </header>
 
-      <main className="flex-1 p-4 md:p-8">
-        <div className="grid gap-8 lg:grid-cols-5 xl:grid-cols-3">
-          <div className="space-y-8 lg:col-span-3 xl:col-span-2">
-            <Card className="shadow-sm">
-                <CardHeader>
-                    <CardTitle>Nueva troncal</CardTitle>
-                    <CardDescription>Define proveedores y límites (CPS, codecs). El backend generará dialstrings y peers.</CardDescription>
-                </CardHeader>
-                <CardContent className="grid md:grid-cols-3 gap-4">
-                    <div>
-                        <Label>Nombre</Label>
-                        <Input value={name} onChange={e=>setName(e.target.value)} />
-                    </div>
-                    <div>
-                        <Label>Host/Proxy</Label>
-                        <Input value={host} onChange={e=>setHost(e.target.value)} />
-                    </div>
-                    <div>
-                        <Label>Codecs</Label>
-                        <Input value={codecs} onChange={e=>setCodecs(e.target.value)} />
-                    </div>
-                    <div>
-                        <Label>Ruta</Label>
-                        <Select value={cliRoute} onValueChange={(v:any)=>setCliRoute(v)}>
-                            <SelectTrigger><SelectValue/></SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="CLI">CLI</SelectItem>
-                                <SelectItem value="CC">CC</SelectItem>
-                            </SelectContent>
-                        </Select>
-                    </div>
-                    <div>
-                        <Label>Máx CPS</Label>
-                        <Input type="number" value={maxCPS} onChange={e=>setMaxCPS(Number(e.target.value))} />
-                    </div>
-                    <div className="flex items-end">
-                        <Button onClick={addTrunk}><Plus className="mr-2 h-4 w-4"/>Agregar</Button>
-                    </div>
-                </CardContent>
-            </Card>
+      <div className="mx-auto max-w-7xl px-4 py-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <nav className="lg:col-span-3 xl:col-span-2 space-y-2">
+          {sections.map(s => (
+            <Button key={s.id} variant={active === s.id ? 'default' : 'ghost'} className="w-full justify-start" onClick={() => setActive(s.id)}>
+              <s.icon className="mr-2 h-4 w-4"/> {s.label}
+            </Button>
+          ))}
+        </nav>
 
-            <Card className="shadow-sm">
-                <CardHeader><CardTitle>Troncales</CardTitle></CardHeader>
-                <CardContent className="space-y-3">
-                    {trunks.map(t => (
-                        <div key={t.id} className="flex items-center gap-3 p-3 border rounded-xl">
-                            <div className="font-medium">{t.name}</div>
-                            <div className="text-slate-500">{t.host}</div>
-                            <Badge variant="secondary">{t.codecs}</Badge>
-                            <Badge variant="secondary">{t.cliRoute}</Badge>
-                            <Badge variant="secondary">CPS {t.maxCPS}</Badge>
-                            <div className="ml-auto flex items-center gap-2">
-                                <Switch checked={t.enabled} onCheckedChange={(val)=>{ handleToggleStatus(t.id, val) }}/>
-                                <Button size="sm" variant="outline" disabled>Editar</Button>
-                                  <AlertDialog>
-                                    <AlertDialogTrigger asChild>
-                                      <Button size="sm" variant="destructive">Eliminar</Button>
-                                    </AlertDialogTrigger>
-                                    <AlertDialogContent>
-                                      <AlertDialogHeader>
-                                        <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-                                        <AlertDialogDescription>
-                                          This will permanently delete the trunk "{t.name}". This action cannot be undone.
-                                        </AlertDialogDescription>
-                                      </AlertDialogHeader>
-                                      <AlertDialogFooter>
-                                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                        <AlertDialogAction onClick={() => handleDeleteTrunk(t.id)} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground">Delete</AlertDialogAction>
-                                      </AlertDialogFooter>
-                                    </AlertDialogContent>
-                                  </AlertDialog>
-                            </div>
-                        </div>
-                    ))}
-                </CardContent>
-            </Card>
+        <main className="lg:col-span-9 xl:col-span-10">
+          {active === 'dashboard' && <Dashboard kpi={kpi} liveCalls={liveCalls}/>} 
+          {active === 'campaigns' && <Campaigns campaigns={campaigns} setCampaigns={setCampaigns} lists={lists} trunks={trunks}/>} 
+          {active === 'lists' && <Lists lists={lists} setLists={setLists}/>} 
+          {active === 'realtime' && <Realtime liveCalls={liveCalls}/>} 
+          {active === 'agent' && <AgentDesk/>} 
+          {active === 'queues' && <Queues/>}
+          {active === 'dispositions' && <Dispositions/>}
+          {active === 'scheduler' && <Scheduler/>}
+          {active === 'providers' && <ProvidersHealth/>}
+          {active === 'compliance' && <ComplianceCenter/>}
+          {active === 'scripts' && <ScriptsDesigner/>}
+          {active === 'audio' && <AudioLibrary/>}
+          {active === 'qa' && <QARecordings/>}
+          {active === 'integrations' && <IntegrationsHub/>}
+          {active === 'audit' && <AuditLog/>}
+          {active === 'reports' && <Reports liveCalls={liveCalls} campaigns={campaigns}/>}
+          {active === 'settings' && <TrunksSettings trunks={trunks} setTrunks={setTrunks}/>}
+        </main>
+      </div>
+
+      <footer className="border-t py-6 text-center text-sm text-slate-500">© {new Date().getFullYear()} Dialer Inteligente — UI MVP</footer>
+    </div>
+  );
+}
+
+// -------------------------- Dashboard --------------------------
+
+function Stat({ title, value, icon: Icon }: { title: string; value: React.ReactNode; icon: any }) {
+  return (
+    <Card className="shadow-sm">
+      <CardHeader className="flex flex-row items-center justify-between pb-2">
+        <CardTitle className="text-sm font-medium">{title}</CardTitle>
+        <Icon className="h-4 w-4 text-slate-400"/>
+      </CardHeader>
+      <CardContent>
+        <div className="text-2xl font-bold">{value}</div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function Dashboard({ kpi, liveCalls }: { kpi: any; liveCalls: LiveCall[] }) {
+  const running = liveCalls.filter(c => c.status !== 'Ended');
+  const humans = liveCalls.filter(c => c.amdLabel === 'HUMAN');
+  const vm = liveCalls.filter(c => c.amdLabel === 'VOICEMAIL');
+  const fax = liveCalls.filter(c => c.amdLabel === 'FAX');
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
+        <Stat title="Ofrecidas" value={kpi.offered} icon={PhoneOutgoing}/>
+        <Stat title="Conectadas" value={kpi.connected} icon={PhoneIncoming}/>
+        <Stat title="Human" value={humans.length} icon={User}/>
+        <Stat title="Voicemail" value={vm.length} icon={PhoneOff}/>
+        <Stat title="Fax/SIT" value={fax.length} icon={Factory}/>
+        <Stat title="AHT (s)" value={kpi.avgAHT} icon={Activity}/>
+      </div>
+
+      <Card className="shadow-sm">
+        <CardHeader>
+          <CardTitle>Monitor en tiempo real</CardTitle>
+          <CardDescription>Flujo de llamadas más recientes (simulado)</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <LiveTable rows={liveCalls.slice(0, 30)} />
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// -------------------------- Campañas --------------------------
+
+function Campaigns({ campaigns, setCampaigns, lists, trunks }: { campaigns: Campaign[]; setCampaigns: any; lists: LeadList[]; trunks: Trunk[] }) {
+  const [showNew, setShowNew] = useState(false);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-3">
+        <h2 className="text-xl font-semibold mr-auto">Campañas</h2>
+        <Button onClick={() => setShowNew(true)}><Plus className="mr-2 h-4 w-4"/>Nueva campaña</Button>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {campaigns.map(c => (
+          <Card key={c.id} className="shadow-sm">
+            <CardHeader>
+              <CardTitle className="flex items-center justify-between">
+                <span>{c.name}</span>
+                <Badge variant={c.status === 'Running' ? 'default' : 'secondary'}>{c.status}</Badge>
+              </CardTitle>
+              <CardDescription>{c.type} · AMD: {c.amdEngine}</CardDescription>
+            </CardHeader>
+            <CardContent className="text-sm space-y-2">
+              <div><b>Lista:</b> {lists.find(l => l.id === c.listId)?.name ?? '—'}</div>
+              <div><b>Troncal:</b> {c.trunkId ? trunks.find(t => t.id === c.trunkId)?.name : '—'}</div>
+              <div className="flex gap-2 pt-2">
+                <Button size="sm" variant="outline">Pausar</Button>
+                <Button size="sm" variant="outline">Duplicar</Button>
+                <Button size="sm" variant="destructive">Eliminar</Button>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      {showNew && (
+        <NewCampaign
+          onClose={() => setShowNew(false)}
+          onSave={(c: Campaign) => { setCampaigns((prev: Campaign[]) => [c, ...prev]); setShowNew(false); }}
+          lists={lists}
+          trunks={trunks}
+        />
+      )}
+    </div>
+  );
+}
+
+function NewCampaign({ onClose, onSave, lists, trunks }: { onClose: () => void; onSave: (c: Campaign) => void; lists: LeadList[]; trunks: Trunk[] }) {
+  const [name, setName] = useState('Campaña sin nombre');
+  const [type, setType] = useState<CampaignType>('Predictive');
+  const [listId, setListId] = useState<string | undefined>(lists[0]?.id);
+  const [trunkId, setTrunkId] = useState<string | undefined>(trunks[0]?.id);
+  const [callerIdStrategy, setCallerIdStrategy] = useState<'Static' | 'ByState' | 'PoolRotation'>('PoolRotation');
+  const [callerIdValue, setCallerIdValue] = useState('');
+  const [pacingRatio, setPacingRatio] = useState(2);
+  const [maxChannels, setMaxChannels] = useState(50);
+  const [dropRateCapPct, setDropRateCapPct] = useState(3);
+  const [abandonMessage, setAbandonMessage] = useState('Lo sentimos, todos nuestros agentes se encuentran ocupados.');
+
+  const [amdEngine, setAmdEngine] = useState<AMDEngine>('Hybrid');
+  const [amdEnabled, setAmdEnabled] = useState(true);
+  const [confidenceMin, setConfidenceMin] = useState(0.7);
+  const [analyzeMs, setAnalyzeMs] = useState(900);
+  const [detectFax, setDetectFax] = useState(true);
+  const [detectSIT, setDetectSIT] = useState(true);
+
+  const [asterisk, setAsterisk] = useState({
+    initialSilence: 2500,
+    greeting: 1500,
+    afterGreetingSilence: 800,
+    totalAnalysisTime: 5000,
+    minWordLength: 120,
+    betweenWordsSilence: 50,
+    maximumNumberOfWords: 3,
+  });
+
+  const [press1Prompt, setPress1Prompt] = useState('Para hablar con un agente, presione 1.');
+  const [press1Digit, setPress1Digit] = useState('1');
+  const [press1Queue, setPress1Queue] = useState('sales');
+  const [noInputAction, setNoInputAction] = useState<'Hangup' | 'Retry' | 'Voicemail'>('Hangup');
+
+  const [targetOccupancyPct, setTargetOccupancyPct] = useState(85);
+  const [avgHandleTimeSec, setAvgHandleTimeSec] = useState(240);
+
+  function save() {
+    const c: Campaign = {
+      id: uid(),
+      name,
+      type,
+      listId,
+      trunkId,
+      callerIdStrategy,
+      callerIdValue: callerIdStrategy === 'Static' ? callerIdValue : undefined,
+      pacingRatio,
+      maxChannels,
+      dropRateCapPct,
+      abandonMessage,
+      amdEngine,
+      amd: { enabled: amdEnabled, confidenceMin, analyzeMs, detectFax, detectSIT, asteriskParams: asterisk },
+      press1: type === 'Press1' ? { promptTTS: press1Prompt, digitToTransfer: press1Digit, transferQueue: press1Queue, noInputAction } : undefined,
+      predictive: type === 'Predictive' ? { targetOccupancyPct, avgHandleTimeSec } : undefined,
+      status: 'Draft',
+      createdAt: new Date().toISOString(),
+    };
+    onSave(c);
+  }
+
+  return (
+    <Card className="shadow-sm">
+      <CardHeader>
+        <CardTitle>Nueva campaña</CardTitle>
+        <CardDescription>Configura parámetros esenciales. Más ajustes podrán exponerse conforme se implemente el backend.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        <div className="grid md:grid-cols-2 gap-4">
+          <div>
+            <Label>Nombre</Label>
+            <Input value={name} onChange={e => setName(e.target.value)} placeholder="Nombre de campaña"/>
+          </div>
+          <div>
+            <Label>Tipo</Label>
+            <Select value={type} onValueChange={(v:any)=>setType(v)}>
+              <SelectTrigger><SelectValue placeholder="Tipo"/></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="Predictive">Predictive</SelectItem>
+                <SelectItem value="Power">Power</SelectItem>
+                <SelectItem value="Preview">Preview</SelectItem>
+                <SelectItem value="Press1">Press-1</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label>Lista</Label>
+            <Select value={listId} onValueChange={(v:any)=>setListId(v)}>
+              <SelectTrigger><SelectValue placeholder="Lista"/></SelectTrigger>
+              <SelectContent>
+                {lists.map(l => <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label>Troncal</Label>
+            <Select value={trunkId} onValueChange={(v:any)=>setTrunkId(v)}>
+              <SelectTrigger><SelectValue placeholder="Troncal"/></SelectTrigger>
+              <SelectContent>
+                {trunks.map(t => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        <div className="grid md:grid-cols-3 gap-4">
+          <div>
+            <Label>Estrategia Caller ID</Label>
+            <Select value={callerIdStrategy} onValueChange={(v:any)=>setCallerIdStrategy(v)}>
+              <SelectTrigger><SelectValue/></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="Static">Static</SelectItem>
+                <SelectItem value="ByState">Por estado</SelectItem>
+                <SelectItem value="PoolRotation">Pool rotation</SelectItem>
+              </SelectContent>
+            </Select>
+            {callerIdStrategy === 'Static' && (
+              <div className="mt-2">
+                <Input value={callerIdValue} onChange={e=>setCallerIdValue(e.target.value)} placeholder="+13051234567"/>
+              </div>
+            )}
+          </div>
+          <div>
+            <Label>Pacing ratio</Label>
+            <Input type="number" value={pacingRatio} onChange={e=>setPacingRatio(Number(e.target.value))}/>
+          </div>
+          <div>
+            <Label>Máx. canales</Label>
+            <Input type="number" value={maxChannels} onChange={e=>setMaxChannels(Number(e.target.value))}/>
+          </div>
+          <div>
+            <Label>Cap abandono (%)</Label>
+            <Input type="number" value={dropRateCapPct} onChange={e=>setDropRateCapPct(Number(e.target.value))}/>
+          </div>
+          <div className="md:col-span-2">
+            <Label>Mensaje de abandono</Label>
+            <Textarea value={abandonMessage} onChange={e=>setAbandonMessage(e.target.value)} />
+          </div>
+        </div>
+
+        <Card className="border-dashed">
+          <CardHeader>
+            <CardTitle className="text-base">Detección Inteligente (AMD)</CardTitle>
+            <CardDescription>Decide en tiempo real si es humano, buzón, fax o SIT. Sólo los humanos pasan a agente.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid md:grid-cols-4 gap-4">
+              <div>
+                <Label>Motor</Label>
+                <Select value={amdEngine} onValueChange={(v:any)=>setAmdEngine(v)}>
+                  <SelectTrigger><SelectValue/></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Asterisk">Asterisk AMD</SelectItem>
+                    <SelectItem value="AI-ML">AI-ML</SelectItem>
+                    <SelectItem value="Hybrid">Hybrid</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-center gap-3 mt-6">
+                <Switch checked={amdEnabled} onCheckedChange={setAmdEnabled}/>
+                <Label>Activado</Label>
+              </div>
+              <div>
+                <Label>Confianza mínima</Label>
+                <Input type="number" step="0.05" value={confidenceMin} onChange={e=>setConfidenceMin(Number(e.target.value))}/>
+              </div>
+              <div>
+                <Label>Ventana análisis (ms)</Label>
+                <Input type="number" value={analyzeMs} onChange={e=>setAnalyzeMs(Number(e.target.value))}/>
+              </div>
+              <div className="flex items-center gap-3">
+                <Switch checked={detectFax} onCheckedChange={setDetectFax}/>
+                <Label>Detectar fax</Label>
+              </div>
+              <div className="flex items-center gap-3">
+                <Switch checked={detectSIT} onCheckedChange={setDetectSIT}/>
+                <Label>Detectar SIT</Label>
+              </div>
+            </div>
+            {amdEngine !== 'Asterisk' ? null : (
+              <div className="grid md:grid-cols-3 gap-4">
+                {Object.entries(asterisk).map(([k, v]) => (
+                  <div key={k}>
+                    <Label>{k}</Label>
+                    <Input type="number" value={v as number} onChange={e=>setAsterisk({ ...asterisk, [k]: Number(e.target.value) })}/>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {type === 'Press1' && (
+          <Card className="border-dashed">
+            <CardHeader>
+              <CardTitle className="text-base">Press-1 (IVR)</CardTitle>
+            </CardHeader>
+            <CardContent className="grid md:grid-cols-3 gap-4">
+              <div>
+                <Label>Prompt TTS</Label>
+                <Textarea value={press1Prompt} onChange={e=>setPress1Prompt(e.target.value)}/>
+              </div>
+              <div>
+                <Label>Dígito de transferencia</Label>
+                <Input value={press1Digit} onChange={e=>setPress1Digit(e.target.value)}/>
+              </div>
+              <div>
+                <Label>Cola destino</Label>
+                <Input value={press1Queue} onChange={e=>setPress1Queue(e.target.value)}/>
+              </div>
+              <div>
+                <Label>Sin input</Label>
+                <Select value={noInputAction} onValueChange={(v:any)=>setNoInputAction(v)}>
+                  <SelectTrigger><SelectValue/></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Hangup">Colgar</SelectItem>
+                    <SelectItem value="Retry">Reintentar</SelectItem>
+                    <SelectItem value="Voicemail">Buzón</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {type === 'Predictive' && (
+          <Card className="border-dashed">
+            <CardHeader>
+              <CardTitle className="text-base">Predictive</CardTitle>
+            </CardHeader>
+            <CardContent className="grid md:grid-cols-2 gap-4">
+              <div>
+                <Label>Target occupancy (%)</Label>
+                <Input type="number" value={targetOccupancyPct} onChange={e=>setTargetOccupancyPct(Number(e.target.value))}/>
+              </div>
+              <div>
+                <Label>AHT estimado (s)</Label>
+                <Input type="number" value={avgHandleTimeSec} onChange={e=>setAvgHandleTimeSec(Number(e.target.value))}/>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        <div className="flex items-center gap-3">
+          <Button onClick={save}><Play className="mr-2 h-4 w-4"/>Guardar campaña</Button>
+          <Button variant="outline" onClick={onClose}>Cancelar</Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// -------------------------- Listas / Leads --------------------------
+
+function Lists({ lists, setLists }: { lists: LeadList[]; setLists: any }) {
+  const [name, setName] = useState('Lista ' + new Date().toLocaleDateString());
+  const [rows, setRows] = useState<any[]>([]);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  function onFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0]; if (!f) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const text = reader.result as string;
+      const data = parseCSV(text);
+      setRows(data);
+    };
+    reader.readAsText(f);
+  }
+
+  function saveList() {
+    const leads: Lead[] = rows.map((r, idx) => ({
+      id: uid(), phone: r.phone || r.Phone || r.telefono || '',
+      firstName: r.firstName || r.nombre || '', lastName: r.lastName || r.apellido || '',
+      state: r.state || r.estado || '', timezone: r.timezone || '', meta: r,
+    })).filter(l => l.phone);
+    const list: LeadList = { id: uid(), name, leads, createdAt: new Date().toISOString() };
+    setLists((prev: LeadList[]) => [list, ...prev]);
+    setRows([]);
+  }
+
+  return (
+    <div className="space-y-6">
+      <Card className="shadow-sm">
+        <CardHeader>
+          <CardTitle>Cargar lista (CSV)</CardTitle>
+          <CardDescription>Columnas mínimas: <code>phone</code>. Opcionales: firstName, lastName, state, timezone…</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid md:grid-cols-3 gap-4 items-end">
+            <div>
+              <Label>Nombre de la lista</Label>
+              <Input value={name} onChange={e=>setName(e.target.value)} />
+            </div>
+            <div>
+              <Label>Archivo CSV</Label>
+              <Input ref={fileRef} type="file" accept=".csv" onChange={onFile} />
+            </div>
+            <div className="flex gap-2">
+              <Button onClick={saveList} disabled={!rows.length}><Upload className="mr-2 h-4 w-4"/>Guardar lista</Button>
+              <Button variant="outline" onClick={() => rows.length && downloadCSV('plantilla.csv', [{ phone: '+13051234567', firstName: 'John', lastName: 'Doe', state: 'FL' }])}><Download className="mr-2 h-4 w-4"/>Plantilla</Button>
+            </div>
           </div>
 
-          <aside className="space-y-8 lg:col-span-2 xl:col-span-1">
-             <Card className="shadow-sm">
-                <CardHeader>
-                    <CardTitle>Notas de integración (backend)</CardTitle>
-                    <CardDescription className="space-y-2">
-                        <ul className="list-disc pl-6 text-sm">
-                            <li>Conectar AMI/ARI para: originate, bridge, eventos de canal, variables (X-AMD, X-LIST, X-CAMPAIGN).</li>
-                            <li>AMD híbrido: usar <code>AMD()</code> de Asterisk + clasificador ML sobre frames PCM (≤ 1s).</li>
-                            <li>Preservar CDR extendido: leadId, listId, providerId, amdLabel, amdConfidence, callResult, sipReason.</li>
-                            <li>Respetar TCPA/DNC/ventanas horarias y STIR/SHAKEN; limitar abandonos según <code>dropRateCapPct</code>.</li>
-                        </ul>
-                    </CardDescription>
-                </CardHeader>
+          {!!rows.length && (
+            <div className="overflow-auto border rounded-xl">
+              <table className="min-w-full text-sm">
+                <thead className="bg-slate-50"><tr>{Object.keys(rows[0]).map(h => <th key={h} className="px-3 py-2 text-left font-medium">{h}</th>)}</tr></thead>
+                <tbody>
+                  {rows.slice(0, 50).map((r,i) => (
+                    <tr key={i} className="border-t"><td className="px-3 py-2" colSpan={Object.keys(rows[0]).length}>
+                      {Object.keys(r).map((h,j) => <span key={j} className="inline-block min-w-[160px]">{String(r[h])}</span>)}
+                    </td></tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="shadow-sm">
+        <CardHeader><CardTitle>Listas existentes</CardTitle></CardHeader>
+        <CardContent className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
+          {lists.map(l => (
+            <Card key={l.id} className="border">
+              <CardHeader>
+                <CardTitle className="text-base">{l.name}</CardTitle>
+                <CardDescription>{l.leads.length} leads</CardDescription>
+              </CardHeader>
+              <CardContent className="flex gap-2">
+                <Button size="sm" variant="outline" onClick={() => downloadCSV(`${l.name}.csv`, l.leads)}>Descargar</Button>
+                <Button size="sm" variant="outline">Ver</Button>
+              </CardContent>
             </Card>
-            <IntegrationNotesGenerator />
-            <AmiAriNotesGenerator />
-          </aside>
-        </div>
-      </main>
+          ))}
+        </CardContent>
+      </Card>
     </div>
+  );
+}
+
+// -------------------------- Tiempo real --------------------------
+
+function LiveTable({ rows }: { rows: LiveCall[] }) {
+  return (
+    <div className="overflow-auto border rounded-xl">
+      <table className="min-w-full text-sm">
+        <thead className="bg-slate-50">
+          <tr>
+            <th className="px-3 py-2 text-left">Hora</th>
+            <th className="px-3 py-2 text-left">Teléfono</th>
+            <th className="px-3 py-2 text-left">Estado</th>
+            <th className="px-3 py-2 text-left">AMD</th>
+            <th className="px-3 py-2 text-left">Conf.</th>
+            <th className="px-3 py-2 text-left">Duración</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(r => (
+            <tr key={r.id} className="border-t">
+              <td className="px-3 py-2">{new Date(r.startedAt).toLocaleTimeString()}</td>
+              <td className="px-3 py-2 font-mono">{r.phone}</td>
+              <td className="px-3 py-2">{r.status}</td>
+              <td className="px-3 py-2">{r.amdLabel}</td>
+              <td className="px-3 py-2">{typeof r.amdConfidence === 'number' ? r.amdConfidence.toFixed(2) : r.amdConfidence}</td>
+              <td className="px-3 py-2">{r.durationSec}s</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function Realtime({ liveCalls }: { liveCalls: LiveCall[] }) {
+  return (
+    <div className="space-y-4">
+      <h2 className="text-xl font-semibold">Monitor en tiempo real</h2>
+      <LiveTable rows={liveCalls}/>
+      <p className="text-xs text-slate-500">*Datos simulados. Conectar a WS/ARI del backend para datos reales.</p>
+    </div>
+  );
+}
+
+// -------------------------- Agente --------------------------
+
+function AgentDesk() {
+  const [incoming, setIncoming] = useState<null | { phone: string; campaign?: string }>(null);
+  const ringRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    ringRef.current = window.setInterval(() => {
+      if (Math.random() < 0.15 && !incoming) {
+        setIncoming({ phone: '+1' + (3000000000 + Math.floor(Math.random()*600000000)).toString(), campaign: 'Sales' });
+      }
+    }, 3000);
+    return () => { if (ringRef.current) clearInterval(ringRef.current); };
+  }, [incoming]);
+
+  return (
+    <Card className="shadow-sm">
+      <CardHeader>
+        <CardTitle>Escritorio de agente</CardTitle>
+        <CardDescription>Placeholder UI. Integra tu softphone WebRTC/SIP + controles (mute, hold, transfer).</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {incoming ? (
+          <div className="flex items-center gap-3">
+            <Badge>Entrante</Badge>
+            <div className="font-mono">{incoming.phone}</div>
+            <div className="text-slate-500">{incoming.campaign}</div>
+            <Button size="sm" className="ml-auto">Contestar</Button>
+            <Button size="sm" variant="destructive">Colgar</Button>
+          </div>
+        ) : (
+          <div className="text-slate-500">Esperando llamada…</div>
+        )}
+        <div className="grid md:grid-cols-3 gap-2">
+          <Button variant="outline">Mute</Button>
+          <Button variant="outline">Hold</Button>
+          <Button variant="outline">Transfer</Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// -------------------------- Reportes --------------------------
+
+function Reports({ liveCalls, campaigns }: { liveCalls: LiveCall[]; campaigns: Campaign[] }) {
+  const [from, setFrom] = useState<string>('');
+  const [to, setTo] = useState<string>('');
+  const [campaignId, setCampaignId] = useState<string | 'all'>('all');
+
+  const rows = useMemo(() => {
+    const f = from ? new Date(from).getTime() : 0;
+    const t = to ? new Date(to).getTime() : Infinity;
+    return liveCalls.filter(c => {
+      const ts = new Date(c.startedAt).getTime();
+      return ts >= f && ts <= t && (campaignId === 'all' || c.campaignId === campaignId);
+    });
+  }, [from, to, campaignId, liveCalls]);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-end gap-3">
+        <div>
+          <Label>Desde</Label>
+          <Input type="datetime-local" value={from} onChange={e=>setFrom(e.target.value)} />
+        </div>
+        <div>
+          <Label>Hasta</Label>
+          <Input type="datetime-local" value={to} onChange={e=>setTo(e.target.value)} />
+        </div>
+        <div className="min-w-[240px]">
+          <Label>Campaña</Label>
+          <Select value={campaignId} onValueChange={(v:any)=>setCampaignId(v)}>
+            <SelectTrigger><SelectValue/></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todas</SelectItem>
+              {campaigns.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        <Button className="ml-auto" onClick={() => downloadCSV('cdr.csv', rows)}>Exportar CSV</Button>
+      </div>
+
+      <LiveTable rows={rows}/>
+    </div>
+  );
+}
+
+// -------------------------- Ajustes (Troncales/Proveedores) --------------------------
+
+function TrunksSettings({ trunks, setTrunks }: { trunks: Trunk[]; setTrunks: any }) {
+  const [name, setName] = useState('US-CLI-BACKUP');
+  const [host, setHost] = useState('sip.backup.net');
+  const [codecs, setCodecs] = useState('ulaw,alaw');
+  const [cliRoute, setCliRoute] = useState<'CLI' | 'CC'>('CLI');
+  const [maxCPS, setMaxCPS] = useState(10);
+
+  function addTrunk() {
+    const t: Trunk = { id: uid(), name, host, codecs, cliRoute, maxCPS, enabled: true };
+    setTrunks((prev: Trunk[]) => [t, ...prev]);
+  }
+
+  return (
+    <div className="space-y-6">
+      <Card className="shadow-sm">
+        <CardHeader>
+          <CardTitle>Nueva troncal</CardTitle>
+          <CardDescription>Define proveedores y límites (CPS, codecs). El backend generará dialstrings y peers.</CardDescription>
+        </CardHeader>
+        <CardContent className="grid md:grid-cols-3 gap-4">
+          <div>
+            <Label>Nombre</Label>
+            <Input value={name} onChange={e=>setName(e.target.value)} />
+          </div>
+          <div>
+            <Label>Host/Proxy</Label>
+            <Input value={host} onChange={e=>setHost(e.target.value)} />
+          </div>
+          <div>
+            <Label>Codecs</Label>
+            <Input value={codecs} onChange={e=>setCodecs(e.target.value)} />
+          </div>
+          <div>
+            <Label>Ruta</Label>
+            <Select value={cliRoute} onValueChange={(v:any)=>setCliRoute(v)}>
+              <SelectTrigger><SelectValue/></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="CLI">CLI</SelectItem>
+                <SelectItem value="CC">CC</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label>Máx CPS</Label>
+            <Input type="number" value={maxCPS} onChange={e=>setMaxCPS(Number(e.target.value))} />
+          </div>
+          <div className="flex items-end">
+            <Button onClick={addTrunk}><Plus className="mr-2 h-4 w-4"/>Agregar</Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="shadow-sm">
+        <CardHeader><CardTitle>Troncales</CardTitle></CardHeader>
+        <CardContent className="space-y-3">
+          {trunks.map(t => (
+            <div key={t.id} className="flex items-center gap-3 p-3 border rounded-xl">
+              <div className="font-medium">{t.name}</div>
+              <div className="text-slate-500">{t.host}</div>
+              <Badge variant="secondary">{t.codecs}</Badge>
+              <Badge variant="secondary">{t.cliRoute}</Badge>
+              <Badge variant="secondary">CPS {t.maxCPS}</Badge>
+              <div className="ml-auto flex items-center gap-2">
+                <Switch checked={t.enabled} onCheckedChange={(val)=>{
+                  setTrunks((prev: Trunk[]) => prev.map(x => x.id === t.id ? { ...x, enabled: !!val } : x));
+                }}/>
+                <Button size="sm" variant="outline">Editar</Button>
+                <Button size="sm" variant="destructive">Eliminar</Button>
+              </div>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// -------------------------- Colas --------------------------
+function Queues() {
+  return (
+    <Card className="shadow-sm">
+      <CardHeader>
+        <CardTitle>Colas & Agentes</CardTitle>
+        <CardDescription>Define colas (sales, support) y asigna agentes con skills/thresholds.</CardDescription>
+      </CardHeader>
+      <CardContent className="grid md:grid-cols-3 gap-4 text-sm">
+        <div className="col-span-1 space-y-2">
+          <Label>Nueva cola</Label>
+          <Input placeholder="sales"/>
+          <Button size="sm" className="mt-2">Crear</Button>
+        </div>
+        <div className="col-span-2">
+          <div className="text-slate-500">Listado de colas (placeholder)</div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// -------------------------- Disposiciones --------------------------
+function Dispositions() {
+  const base = ['SALE','CALLBACK','NO_ANSWER','BUSY','VOICEMAIL','DO_NOT_CALL'];
+  return (
+    <Card className="shadow-sm">
+      <CardHeader>
+        <CardTitle>Disposiciones</CardTitle>
+        <CardDescription>Configura resultados y su lógica (reintentos, listas, prioridad).</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="flex flex-wrap gap-2">{base.map(d => <Badge key={d}>{d}</Badge>)}</div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// -------------------------- Agendador --------------------------
+function Scheduler() {
+  return (
+    <Card className="shadow-sm">
+      <CardHeader>
+        <CardTitle>Agendador & Ventanas Horarias</CardTitle>
+        <CardDescription>Define ventanas por timezone y límites de intentos por lead.</CardDescription>
+      </CardHeader>
+      <CardContent className="grid md:grid-cols-3 gap-4">
+        <div>
+          <Label>Máx intentos/lead</Label>
+          <Input type="number" defaultValue={4}/>
+        </div>
+        <div>
+          <Label>Cooldown (min)</Label>
+          <Input type="number" defaultValue={30}/>
+        </div>
+        <div>
+          <Label>Ventanas (ej. 9:00–20:00 local)</Label>
+          <Input placeholder="09:00-20:00"/>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// -------------------------- Salud de Proveedores --------------------------
+function ProvidersHealth() {
+  return (
+    <Card className="shadow-sm">
+      <CardHeader>
+        <CardTitle>Salud de Proveedores</CardTitle>
+        <CardDescription>RTT, ASR, respuesta SIP, %FAS/SIT por troncal y región (placeholder).</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="text-slate-500 text-sm">Conectar PJSIP qualify, RTCP/RTT y CDR para KPIs por proveedor.</div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// -------------------------- Cumplimiento --------------------------
+function ComplianceCenter() {
+  return (
+    <Card className="shadow-sm">
+      <CardHeader>
+        <CardTitle>Cumplimiento</CardTitle>
+        <CardDescription>DNC, consentimiento, caps de abandono, STIR/SHAKEN (placeholders).</CardDescription>
+      </CardHeader>
+      <CardContent className="grid md:grid-cols-3 gap-4">
+        <div>
+          <Label>Cap de abandono (%)</Label>
+          <Input type="number" defaultValue={3}/>
+        </div>
+        <div>
+          <Label>Lista DNC</Label>
+          <Input placeholder="Subir CSV / integrar API"/>
+        </div>
+        <div>
+          <Label>Attestation</Label>
+          <Select defaultValue="A">
+            <SelectTrigger><SelectValue/></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="A">A</SelectItem>
+              <SelectItem value="B">B</SelectItem>
+              <SelectItem value="C">C</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// -------------------------- Guiones --------------------------
+function ScriptsDesigner() {
+  return (
+    <Card className="shadow-sm">
+      <CardHeader>
+        <CardTitle>Guiones de Llamada</CardTitle>
+        <CardDescription>Editor simple para scripts por campaña (variables lead, respuestas rápidas).</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <Textarea placeholder="Hola {{firstName}}, te llamo de..."/>
+      </CardContent>
+    </Card>
+  );
+}
+
+// -------------------------- Biblioteca de Audio --------------------------
+function AudioLibrary() {
+  return (
+    <Card className="shadow-sm">
+      <CardHeader>
+        <CardTitle>Audio / TTS</CardTitle>
+        <CardDescription>Sube audios, genera TTS y asígnalos a campañas/IVR.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="text-slate-500 text-sm">Placeholder: upload + preview.</div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// -------------------------- Grabaciones & QA --------------------------
+function QARecordings() {
+  return (
+    <Card className="shadow-sm">
+      <CardHeader>
+        <CardTitle>Grabaciones & QA</CardTitle>
+        <CardDescription>Lista de grabaciones, calificación por scorecard, búsqueda por texto (ASR).</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="text-slate-500 text-sm">Placeholder: tabla de grabaciones y reproductor.</div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// -------------------------- Integraciones --------------------------
+function IntegrationsHub() {
+  return (
+    <Card className="shadow-sm">
+      <CardHeader>
+        <CardTitle>Integraciones</CardTitle>
+        <CardDescription>CRM (Trinity Hub 360), Webhooks, S3/Storage, TTS/STT/AI.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="text-slate-500 text-sm">Placeholder: toggles y credenciales.</div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// -------------------------- Auditoría --------------------------
+function AuditLog() {
+  return (
+    <Card className="shadow-sm">
+      <CardHeader>
+        <CardTitle>Auditoría</CardTitle>
+        <CardDescription>Eventos relevantes con usuario, IP, timestamp (placeholder).</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="text-slate-500 text-sm">Placeholder: tabla de eventos.</div>
+      </CardContent>
+    </Card>
   );
 }
