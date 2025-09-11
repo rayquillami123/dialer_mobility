@@ -9,7 +9,11 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Switch } from '@/components/ui/switch';
-import { Download, PhoneCall, Play, Plus, Settings, Upload, User, Activity, Database, Factory, PhoneIncoming, PhoneOutgoing, PhoneOff, FileDown } from 'lucide-react';
+import { Download, PhoneCall, Play, Plus, Settings, Upload, User, Activity, Database, Factory, PhoneIncoming, PhoneOutgoing, PhoneOff, FileDown, Bot } from 'lucide-react';
+import { generateIntegrationNotes } from '@/ai/flows/generate-integration-notes';
+import { AmiAriNotesForm, Trunk } from '@/lib/types';
+import { suggestAMIARIConnectionNotes } from '@/ai/flows/suggest-ami-ari-connection-notes';
+import { useForm, Controller } from 'react-hook-form';
 
 /**
  * FRONTEND MVP – DIALER INTELIGENTE (Asterisk backend)
@@ -116,8 +120,6 @@ interface Lead {
 
 interface LeadList { id: string; name: string; leads: Lead[]; createdAt: string; }
 
-interface Trunk { id: string; name: string; host: string; username?: string; codecs?: string; cliRoute?: 'CLI' | 'CC'; maxCPS?: number; enabled: boolean; }
-
 interface LiveCall {
   id: string;
   phone: string;
@@ -176,7 +178,7 @@ const sections = [
   { id: 'scripts', label: 'Guiones', icon: FileDown },
   { id: 'audio', label: 'Audio TTS/Prompts', icon: Download },
   { id: 'qa', label: 'Grabaciones & QA', icon: Activity },
-  { id: 'integrations', label: 'Integraciones', icon: Settings },
+  { id: 'integrations', label: 'Integraciones', icon: Bot },
   { id: 'audit', label: 'Auditoría', icon: Settings },
   { id: 'reports', label: 'Reportes', icon: FileDown },
   { id: 'settings', label: 'Ajustes', icon: Settings },
@@ -277,7 +279,7 @@ export default function DialerInteligenteApp() {
           {active === 'scripts' && <ScriptsDesigner/>}
           {active === 'audio' && <AudioLibrary/>}
           {active === 'qa' && <QARecordings/>}
-          {active === 'integrations' && <IntegrationsHub/>}
+          {active === 'integrations' && <Integrations/>}
           {active === 'audit' && <AuditLog/>}
           {active === 'reports' && <Reports liveCalls={liveCalls} campaigns={campaigns}/>}
           {active === 'settings' && <TrunksSettings trunks={trunks} setTrunks={setTrunks}/>}
@@ -862,51 +864,66 @@ function TrunksSettings({ trunks, setTrunks }: { trunks: Trunk[]; setTrunks: any
   const [codecs, setCodecs] = useState('ulaw,alaw');
   const [cliRoute, setCliRoute] = useState<'CLI' | 'CC'>('CLI');
   const [maxCPS, setMaxCPS] = useState(10);
+  const [editingTrunk, setEditingTrunk] = useState<Trunk | null>(null);
 
   function addTrunk() {
     const t: Trunk = { id: uid(), name, host, codecs, cliRoute, maxCPS, enabled: true };
     setTrunks((prev: Trunk[]) => [t, ...prev]);
   }
+  
+  function deleteTrunk(id: string) {
+    setTrunks((prev: Trunk[]) => prev.filter(t => t.id !== id));
+  }
 
   return (
     <div className="space-y-6">
-      <Card className="shadow-sm">
+       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <Card className="shadow-sm">
+          <CardHeader>
+            <CardTitle>Nueva troncal</CardTitle>
+            <CardDescription>Define proveedores y límites (CPS, codecs). El backend generará dialstrings y peers.</CardDescription>
+          </CardHeader>
+          <CardContent className="grid md:grid-cols-2 gap-4">
+            <div>
+              <Label>Nombre</Label>
+              <Input value={name} onChange={e=>setName(e.target.value)} />
+            </div>
+            <div>
+              <Label>Host/Proxy</Label>
+              <Input value={host} onChange={e=>setHost(e.target.value)} />
+            </div>
+            <div>
+              <Label>Codecs</Label>
+              <Input value={codecs} onChange={e=>setCodecs(e.target.value)} />
+            </div>
+            <div>
+              <Label>Ruta</Label>
+              <Select value={cliRoute} onValueChange={(v:any)=>setCliRoute(v)}>
+                <SelectTrigger><SelectValue/></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="CLI">CLI</SelectItem>
+                  <SelectItem value="CC">CC</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Máx CPS</Label>
+              <Input type="number" value={maxCPS} onChange={e=>setMaxCPS(Number(e.target.value))} />
+            </div>
+            <div className="flex items-end">
+              <Button onClick={addTrunk}><Plus className="mr-2 h-4 w-4"/>Agregar</Button>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="shadow-sm">
         <CardHeader>
-          <CardTitle>Nueva troncal</CardTitle>
-          <CardDescription>Define proveedores y límites (CPS, codecs). El backend generará dialstrings y peers.</CardDescription>
+          <CardTitle>Notas de integración (backend)</CardTitle>
+          <CardDescription className="space-y-2">
+          Conectar AMI/ARI para: originate, bridge, eventos de canal, variables (X-AMD, X-LIST, X-CAMPAIGN).
+          </CardDescription>
         </CardHeader>
-        <CardContent className="grid md:grid-cols-3 gap-4">
-          <div>
-            <Label>Nombre</Label>
-            <Input value={name} onChange={e=>setName(e.target.value)} />
-          </div>
-          <div>
-            <Label>Host/Proxy</Label>
-            <Input value={host} onChange={e=>setHost(e.target.value)} />
-          </div>
-          <div>
-            <Label>Codecs</Label>
-            <Input value={codecs} onChange={e=>setCodecs(e.target.value)} />
-          </div>
-          <div>
-            <Label>Ruta</Label>
-            <Select value={cliRoute} onValueChange={(v:any)=>setCliRoute(v)}>
-              <SelectTrigger><SelectValue/></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="CLI">CLI</SelectItem>
-                <SelectItem value="CC">CC</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div>
-            <Label>Máx CPS</Label>
-            <Input type="number" value={maxCPS} onChange={e=>setMaxCPS(Number(e.target.value))} />
-          </div>
-          <div className="flex items-end">
-            <Button onClick={addTrunk}><Plus className="mr-2 h-4 w-4"/>Agregar</Button>
-          </div>
-        </CardContent>
-      </Card>
+        </Card>
+        </div>
 
       <Card className="shadow-sm">
         <CardHeader><CardTitle>Troncales</CardTitle></CardHeader>
@@ -922,8 +939,8 @@ function TrunksSettings({ trunks, setTrunks }: { trunks: Trunk[]; setTrunks: any
                 <Switch checked={t.enabled} onCheckedChange={(val)=>{
                   setTrunks((prev: Trunk[]) => prev.map(x => x.id === t.id ? { ...x, enabled: !!val } : x));
                 }}/>
-                <Button size="sm" variant="outline">Editar</Button>
-                <Button size="sm" variant="destructive">Eliminar</Button>
+                <Button size="sm" variant="outline" disabled>Editar</Button>
+                <Button size="sm" variant="destructive" onClick={() => deleteTrunk(t.id)}>Eliminar</Button>
               </div>
             </div>
           ))}
@@ -1091,17 +1108,130 @@ function QARecordings() {
 }
 
 // -------------------------- Integraciones --------------------------
-function IntegrationsHub() {
+function Integrations() {
+  const [integrationNotes, setIntegrationNotes] = useState('');
+  const [amiAriNotes, setAmiAriNotes] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const { control, handleSubmit, formState: { errors } } = useForm<AmiAriNotesForm>({
+    defaultValues: {
+      platform: 'asterisk',
+      version: '18',
+      purpose: 'real-time monitoring and call control'
+    }
+  });
+
+  const handleGenerateIntegrationNotes = async () => {
+    setLoading(true);
+    setIntegrationNotes('');
+    try {
+      const notes = await generateIntegrationNotes();
+      setIntegrationNotes(notes);
+    } catch (error) {
+      console.error(error);
+      setIntegrationNotes('Error generating integration notes.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSuggestAmiAriNotes = async (data: AmiAriNotesForm) => {
+    setLoading(true);
+    setAmiAriNotes('');
+    try {
+      const result = await suggestAMIARIConnectionNotes(data);
+      setAmiAriNotes(result.notes);
+    } catch (error) {
+      console.error(error);
+      setAmiAriNotes('Error generating AMI/ARI connection notes.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+
   return (
-    <Card className="shadow-sm">
-      <CardHeader>
-        <CardTitle>Integraciones</CardTitle>
-        <CardDescription>CRM (Trinity Hub 360), Webhooks, S3/Storage, TTS/STT/AI.</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div className="text-slate-500 text-sm">Placeholder: toggles y credenciales.</div>
-      </CardContent>
-    </Card>
+    <div className="space-y-6">
+      <Card className="shadow-sm">
+        <CardHeader>
+          <CardTitle>Generador de Notas de Integración</CardTitle>
+          <CardDescription>
+            Utilice IA para generar notas detalladas para que los desarrolladores creen el backend y lo integren con este frontend.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button onClick={handleGenerateIntegrationNotes} disabled={loading}>
+            <Bot className="mr-2 h-4 w-4" />
+            {loading && !integrationNotes ? 'Generando...' : 'Generar Notas de Integración'}
+          </Button>
+          {integrationNotes && (
+            <div className="mt-4 p-4 border rounded-xl bg-slate-50">
+              <h3 className="font-semibold mb-2">Notas de Integración Generadas:</h3>
+              <pre className="whitespace-pre-wrap text-sm">{integrationNotes}</pre>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="shadow-sm">
+        <CardHeader>
+          <CardTitle>Sugerencias de Conexión AMI/ARI</CardTitle>
+          <CardDescription>
+            Obtenga notas de configuración de IA para conectar su plataforma de telefonía.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleSubmit(handleSuggestAmiAriNotes)} className="space-y-4">
+            <div className="grid md:grid-cols-3 gap-4">
+              <div>
+                <Label>Plataforma</Label>
+                <Controller
+                  name="platform"
+                  control={control}
+                  render={({ field }) => (
+                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="asterisk">Asterisk</SelectItem>
+                        <SelectItem value="freeswitch">FreeSWITCH</SelectItem>
+                        <SelectItem value="kamailio">Kamailio</SelectItem>
+                        <SelectItem value="other">Otro</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+              </div>
+              <div>
+                <Label>Versión</Label>
+                <Controller
+                  name="version"
+                  control={control}
+                  render={({ field }) => <Input {...field} placeholder="p.ej. 18.x" />}
+                />
+              </div>
+              <div>
+                <Label>Propósito</Label>
+                 <Controller
+                  name="purpose"
+                  control={control}
+                  render={({ field }) => <Input {...field} placeholder="p.ej. Monitoreo"/>}
+                />
+              </div>
+            </div>
+            <Button type="submit" disabled={loading}>
+              <Bot className="mr-2 h-4 w-4" />
+              {loading && !amiAriNotes ? 'Generando...' : 'Sugerir Notas de Conexión'}
+            </Button>
+          </form>
+          {amiAriNotes && (
+            <div className="mt-4 p-4 border rounded-xl bg-slate-50">
+              <h3 className="font-semibold mb-2">Notas de Conexión AMI/ARI Sugeridas:</h3>
+              <pre className="whitespace-pre-wrap text-sm">{amiAriNotes}</pre>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
   );
 }
 
