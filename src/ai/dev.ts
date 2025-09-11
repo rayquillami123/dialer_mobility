@@ -1,1 +1,5 @@
-// Flows will be imported for their side effects in this file.
+import { config } from 'dotenv';
+config();
+
+import '@/ai/flows/generate-integration-notes.ts';
+import '@/ai/flows/suggest-ami-ari-connection-notes.ts';
