@@ -9,11 +9,12 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Switch } from '@/components/ui/switch';
-import { Download, PhoneCall, Play, Plus, Settings, Upload, User, Activity, Database, Factory, PhoneIncoming, PhoneOutgoing, PhoneOff, FileDown, Bot } from 'lucide-react';
+import { Download, PhoneCall, Play, Plus, Settings, Upload, User, Activity, Database, Factory, PhoneIncoming, PhoneOutgoing, PhoneOff, FileDown, Bot, Code } from 'lucide-react';
 import { generateIntegrationNotes } from '@/ai/flows/generate-integration-notes';
 import { AmiAriNotesForm, Trunk } from '@/lib/types';
 import { suggestAMIARIConnectionNotes } from '@/ai/flows/suggest-ami-ari-connection-notes';
 import { useForm, Controller } from 'react-hook-form';
+import { generateDeveloperIntegrationGuide } from '@/ai/flows/generate-developer-integration-guide';
 
 /**
  * FRONTEND MVP – DIALER INTELIGENTE (Asterisk backend)
@@ -1111,7 +1112,8 @@ function QARecordings() {
 function Integrations() {
   const [integrationNotes, setIntegrationNotes] = useState('');
   const [amiAriNotes, setAmiAriNotes] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [devGuide, setDevGuide] = useState('');
+  const [loading, setLoading] = useState(''); // Can be 'notes', 'ami', or 'guide'
 
   const { control, handleSubmit, formState: { errors } } = useForm<AmiAriNotesForm>({
     defaultValues: {
@@ -1122,7 +1124,7 @@ function Integrations() {
   });
 
   const handleGenerateIntegrationNotes = async () => {
-    setLoading(true);
+    setLoading('notes');
     setIntegrationNotes('');
     try {
       const notes = await generateIntegrationNotes();
@@ -1131,12 +1133,12 @@ function Integrations() {
       console.error(error);
       setIntegrationNotes('Error generating integration notes.');
     } finally {
-      setLoading(false);
+      setLoading('');
     }
   };
 
   const handleSuggestAmiAriNotes = async (data: AmiAriNotesForm) => {
-    setLoading(true);
+    setLoading('ami');
     setAmiAriNotes('');
     try {
       const result = await suggestAMIARIConnectionNotes(data);
@@ -1145,7 +1147,21 @@ function Integrations() {
       console.error(error);
       setAmiAriNotes('Error generating AMI/ARI connection notes.');
     } finally {
-      setLoading(false);
+      setLoading('');
+    }
+  };
+  
+  const handleGenerateDevGuide = async () => {
+    setLoading('guide');
+    setDevGuide('');
+    try {
+      const result = await generateDeveloperIntegrationGuide();
+      setDevGuide(result);
+    } catch (error) {
+      console.error(error);
+      setDevGuide('Error generating the developer integration guide.');
+    } finally {
+      setLoading('');
     }
   };
 
@@ -1154,15 +1170,36 @@ function Integrations() {
     <div className="space-y-6">
       <Card className="shadow-sm">
         <CardHeader>
+          <CardTitle>Guía de Integración para Desarrolladores</CardTitle>
+          <CardDescription>
+            Genere una guía técnica completa para integrar este frontend con un backend de Asterisk, basado en las especificaciones detalladas del proyecto.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button onClick={handleGenerateDevGuide} disabled={loading === 'guide'}>
+            <Code className="mr-2 h-4 w-4" />
+            {loading === 'guide' ? 'Generando Guía...' : 'Generar Guía Técnica Completa'}
+          </Button>
+          {devGuide && (
+            <div className="mt-4 p-4 border rounded-xl bg-slate-50">
+              <h3 className="font-semibold mb-2">Guía de Integración para Desarrolladores:</h3>
+              <pre className="whitespace-pre-wrap text-sm">{devGuide}</pre>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="shadow-sm">
+        <CardHeader>
           <CardTitle>Generador de Notas de Integración</CardTitle>
           <CardDescription>
             Utilice IA para generar notas detalladas para que los desarrolladores creen el backend y lo integren con este frontend.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <Button onClick={handleGenerateIntegrationNotes} disabled={loading}>
+          <Button onClick={handleGenerateIntegrationNotes} disabled={loading === 'notes'}>
             <Bot className="mr-2 h-4 w-4" />
-            {loading && !integrationNotes ? 'Generando...' : 'Generar Notas de Integración'}
+            {loading === 'notes' ? 'Generando...' : 'Generar Notas de Integración'}
           </Button>
           {integrationNotes && (
             <div className="mt-4 p-4 border rounded-xl bg-slate-50">
@@ -1218,9 +1255,9 @@ function Integrations() {
                 />
               </div>
             </div>
-            <Button type="submit" disabled={loading}>
+            <Button type="submit" disabled={loading === 'ami'}>
               <Bot className="mr-2 h-4 w-4" />
-              {loading && !amiAriNotes ? 'Generando...' : 'Sugerir Notas de Conexión'}
+              {loading === 'ami' ? 'Generando...' : 'Sugerir Notas de Conexión'}
             </Button>
           </form>
           {amiAriNotes && (
