@@ -54,6 +54,7 @@ Your task is to take the following comprehensive technical blueprint for a profe
      }
      \`\`\`
    - **UI Adds:** Selector for Campaign/Provider + quick range (1h/Today/24h). Mini sparklines for 5-min trends.
+   - **DoD:** WS "kpi.tick" cada 1s. Cambiar scope sin refrescar (global/campaña/troncal).
 
 **3.2. Real-Time Monitor (P0):**
    - **Required Columns:** Campaign, Trunk, SIP Code, Queue, Agent, AMD Confidence.
@@ -147,15 +148,15 @@ Your task is to take the following comprehensive technical blueprint for a profe
 
 **4. Dialplan & AMD Logic (FreeSWITCH XML):**
    - **Audio Fork for AI AMD:**
-     \`uuid_audio_fork \${uuid} start ws://amd-svc:8080 {mix=true,rate=16000,format=L16}\`
+     \`uuid_audio_fork \\\${uuid} start ws://amd-svc:8080 {mix=true,rate=16000,format=L16}\`
 
    - **Routing based on AMD result (set by external service):**
      \`\`\`xml
-     <condition field="\${AMD_LABEL}" expression="^HUMAN$">
+     <condition field="\\\${AMD_LABEL}" expression="^HUMAN$">
        <action application="set" data="cc_export_vars=X_CAMPAIGN,X_LEAD,X_TRUNK"/>
        <action application="callcenter" data="sales"/>
      </condition>
-     <condition field="\${AMD_LABEL}" expression="^(VOICEMAIL|FAX|SIT|UNKNOWN)$">
+     <condition field="\\\${AMD_LABEL}" expression="^(VOICEMAIL|FAX|SIT|UNKNOWN)$">
        <action application="hangup" data="NORMAL_CLEARING"/>
      </condition>
      \`\`\`
@@ -222,14 +223,14 @@ Your task is to take the following comprehensive technical blueprint for a profe
   <templates>
     <template name="default"><![CDATA[
 {
-  "uuid": "\${uuid}", "call_id": "\${sip_call_id}", "direction": "\${direction}",
-  "start_stamp": "\${start_stamp}", "answer_stamp": "\${answer_stamp}", "end_stamp": "\${end_stamp}",
-  "duration": \${duration}, "billsec": \${billsec},
-  "hangup_cause": "\${hangup_cause}", "sip_hangup_cause": "\${sip_hangup_cause}",
-  "campaign_id": "\${X_CAMPAIGN}", "list_id": "\${X_LIST}", "lead_id": "\${X_LEAD}",
-  "trunk_id": "\${X_TRUNK}", "queue": "\${cc_queue}", "agent_id": "\${cc_agent}",
-  "amd_label": "\${AMD_LABEL}", "amd_confidence": "\${AMD_CONFIDENCE}",
-  "progress_ms": "\${progress_ms}", "early_media_ms": "\${early_media_ms}"
+  "uuid": "\\\${uuid}", "call_id": "\\\${sip_call_id}", "direction": "\\\${direction}",
+  "start_stamp": "\\\${start_stamp}", "answer_stamp": "\\\${answer_stamp}", "end_stamp": "\\\${end_stamp}",
+  "duration": \\\${duration}, "billsec": \\\${billsec},
+  "hangup_cause": "\\\${hangup_cause}", "sip_hangup_cause": "\\\${sip_hangup_cause}",
+  "campaign_id": "\\\${X_CAMPAIGN}", "list_id": "\\\${X_LIST}", "lead_id": "\\\${X_LEAD}",
+  "trunk_id": "\\\${X_TRUNK}", "queue": "\\\${cc_queue}", "agent_id": "\\\${cc_agent}",
+  "amd_label": "\\\${AMD_LABEL}", "amd_confidence": "\\\${AMD_CONFIDENCE}",
+  "progress_ms": "\\\${progress_ms}", "early_media_ms": "\\\${early_media_ms}"
 }
       ]]\>
     </template>
@@ -257,6 +258,12 @@ Your task is to take the following comprehensive technical blueprint for a profe
 **D) Predictive Predictor (P1):**
    - **Algorithm:** A pacing loop that balances occupancy and AHT goals, constrained by CPS limits and the 60s abandonment rate, and adjusted by the 5m ASR.
    - **Distribution:** Distributes calls across trunks based on configured weights and CPS capacity.
+
+**8. Seguridad y escalado (recomendado)**
+   - ESL en 127.0.0.1 o detrás de proxy + ACL + password fuerte.
+   - TLS para WSS/WebRTC; rotación de tokens/API keys.
+   - Cola de jobs (Redis/Rabbit) para originate masivo; idempotencia por lead_id.
+   - FS en clúster “multi-gw” con base CDR/queue externa.
 
 **Instructions for the AI:**
 - Generate a comprehensive, well-structured developer integration guide based on this FreeSWITCH-first blueprint.
