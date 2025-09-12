@@ -239,7 +239,7 @@ export default function DialerInteligenteApp() {
           {active === 'queues' && <Queues/>}
           {active === 'dispositions' && <Dispositions/>}
           {active === 'scheduler' && <Scheduler/>}
-          {active === 'providers' && <ProvidersHealth/>}
+          {active === 'providers' && <TrunksSettings trunks={trunks} setTrunks={setTrunks}/>}
           {active === 'compliance' && <ComplianceCenter/>}
           {active === 'scripts' && <ScriptsDesigner/>}
           {active === 'audio' && <AudioLibrary/>}
@@ -247,7 +247,7 @@ export default function DialerInteligenteApp() {
           {active === 'integrations' && <Integrations/>}
           {active === 'audit' && <AuditLog/>}
           {active === 'reports' && <Reports allCalls={allCalls} campaigns={campaigns}/>}
-          {active === 'settings' && <TrunksSettings trunks={trunks} setTrunks={setTrunks}/>}
+          {active === 'settings' && <SettingsPage/>}
         </main>
       </div>
 
@@ -892,16 +892,19 @@ function TrunksSettings({ trunks, setTrunks }: { trunks: Trunk[]; setTrunks: any
         </Card>
         <Card className="shadow-sm">
         <CardHeader>
-          <CardTitle>Notas de integración (backend)</CardTitle>
-          <CardDescription className="space-y-2">
-          Conectar AMI/ARI para: originate, bridge, eventos de canal, variables (X-AMD, X-LIST, X-CAMPAIGN).
+          <CardTitle>Salud de Proveedores</CardTitle>
+          <CardDescription>
+            Monitoriza RTT, ASR, y la mezcla de respuestas SIP por troncal (placeholder).
           </CardDescription>
         </CardHeader>
+        <CardContent>
+          <p className="text-sm text-slate-500">Conectar PJSIP qualify, RTCP/RTT y CDR para KPIs por proveedor.</p>
+        </CardContent>
         </Card>
         </div>
 
       <Card className="shadow-sm">
-        <CardHeader><CardTitle>Troncales</CardTitle></CardHeader>
+        <CardHeader><CardTitle>Troncales Configurados</CardTitle></CardHeader>
         <CardContent className="space-y-3">
           {trunks.map(t => (
             <div key={t.id} className="flex items-center gap-3 p-3 border rounded-xl">
@@ -984,21 +987,6 @@ function Scheduler() {
           <Label>Ventanas (ej. 9:00–20:00 local)</Label>
           <Input placeholder="09:00-20:00"/>
         </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-// -------------------------- Salud de Proveedores --------------------------
-function ProvidersHealth() {
-  return (
-    <Card className="shadow-sm">
-      <CardHeader>
-        <CardTitle>Salud de Proveedores</CardTitle>
-        <CardDescription>RTT, ASR, respuesta SIP, %FAS/SIT por troncal y región (placeholder).</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div className="text-slate-500 text-sm">Conectar PJSIP qualify, RTCP/RTT y CDR para KPIs por proveedor.</div>
       </CardContent>
     </Card>
   );
@@ -1300,6 +1288,23 @@ function AuditLog() {
       </CardHeader>
       <CardContent>
         <div className="text-slate-500 text-sm">Placeholder: tabla de eventos.</div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// -------------------------- Ajustes (Globales) --------------------------
+function SettingsPage() {
+  return (
+    <Card className="shadow-sm">
+      <CardHeader>
+        <CardTitle>Ajustes Globales</CardTitle>
+        <CardDescription>
+          Parámetros generales del sistema (placeholder).
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <p className="text-sm text-slate-500">Aquí irían configuraciones globales del dialer.</p>
       </CardContent>
     </Card>
   );
