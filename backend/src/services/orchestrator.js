@@ -121,16 +121,18 @@ async function loop(campaignId){
       const vars = [
         `origination_caller_id_number=${cli}`,
         `effective_caller_id_number=${cli}`,
-        `export_vars='X_CAMPAIGN,X_LIST,X_LEAD,X_TRUNK,X_DID'`,
+        `export_vars='X_CAMPAIGN,X_LIST,X_LEAD,X_TRUNK,X_DID,X_PBX_QUEUE'`,
         `X_CAMPAIGN=${campaignId}`,
         `X_LIST=${lead.list_id}`,
         `X_LEAD=${lead.lead_id}`,
         `X_TRUNK=${trunkId}`,
-        `X_DID=${did.id}`
+        `X_DID=${did.id}`,
+        `X_PBX_QUEUE=${queue || 'sales'}` // Cola en la PBX de destino
       ].join(',');
 
       const dest = lead.phone.replace('+',''); // ajusta a tu gateway
-      const cmd = `originate {${vars}}sofia/gateway/${trunkId}/${dest} &park()`;
+      // En lugar de &park(), transferimos a un dialplan que se encargará del ruteo AMD
+      const cmd = `originate {${vars}}sofia/gateway/${trunkId}/${dest} &transfer('dialer_amd_routing XML default')`;
 
       // Registrar intento
       await db.query(`insert into attempts(campaign_id, list_id, lead_id, did_id, dest_phone, state, result)

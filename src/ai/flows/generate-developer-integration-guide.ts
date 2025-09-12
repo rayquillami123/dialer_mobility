@@ -46,47 +46,58 @@ Your task is to take the following comprehensive technical blueprint and market 
 
 **Dialer Technical Blueprint: FreeSWITCH Edition**
 
-**1. Core Architecture ("FreeSWITCH-first"):**
-   - **Engine:** FreeSWITCH with key modules enabled.
-   - **Orchestrator:** A custom Node.js service responsible for the predictive pacing loop (using \`computeDialRate\`), retry logic, compliance enforcement (DNC, dialing windows, abandon caps), and provider/CPS routing.
+**1. Core Architecture ("Dialer Engine-Only"):**
+   - **Engine:** FreeSWITCH with key modules enabled. Its only job is to dial out and detect humans.
+   - **Orchestrator:** A custom Node.js service responsible for the predictive pacing loop, retry logic, compliance (DNC, dialing windows), and provider routing.
+   - **External PBX:** An existing PBX (Asterisk, FreeSWITCH, Cloud PBX) where agents are registered and receive calls.
    - **Real-time Service:** A WebSocket server that subscribes to FreeSWITCH events via ESL and broadcasts them to the UI.
-   - **Reporting Layer:** An extended CDR schema in PostgreSQL, with recordings stored in a blob/S3-compatible object store.
+   - **Reporting Layer:** An extended CDR schema in PostgreSQL.
 
 **2. Required FreeSWITCH Modules:**
    - **mod_event_socket:** The core for real-time control and eventing (ESL).
-   - **mod_callcenter:** Provides robust ACD/queue capabilities for routing calls to agents.
    - **mod_json_cdr:** For pushing detailed CDRs to our backend's HTTP endpoint.
    - **mod_avmd:** For reliable voicemail beep detection.
+   - **mod_sofia:** For SIP trunking to both outbound providers and the internal PBX.
 
-**3. UI/Backend Integration Plan by Screen:**
-   *(Existing detailed plan for Dashboard, Campaigns, Lists, Real-time monitor, etc. remains here)*
-
-**4. Dialplan & AMD Logic (FreeSWITCH XML):**
+**3. Dialplan & AMD Logic (transfer to external PBX):**
    \`\`\`xml
-   <extension name="dialer-outbound">
-     <condition field="destination_number" expression="^(.+)$">
-       <!-- 1) Set compliance and routing variables -->
-       <action application="set" data="ringback=\${us-ring}"/>
-       <action application="set" data="call_timeout=25"/>
-       <action application="set" data="progress_timeout=13"/> 
-       <action application="record_session" data="\${recordings_dir}/\${uuid}.wav"/>
+   <extension name="dialer_amd_routing">
+     <condition field="destination_number" expression="^.*$">
+        <!-- 1. Execute Answer Machine Detection -->
+        <!-- This part is now handled by the Orchestrator sending ESL commands, -->
+        <!-- or you can use a dedicated AMD application here if preferred. -->
+        <!-- The result is expected in the AMD_LABEL channel variable. -->
+        <action application="answer"/>
+        <action application="sleep" data="500"/>
+        
+        <!-- 2. Post-AMD Routing -->
+        <condition field="\${AMD_LABEL}" expression="^HUMAN$">
+          <!-- HUMAN: Transfer to the external PBX queue -->
+          <action application="log" data="INFO: Human detected. Transferring call \${uuid} to PBX queue \${X_PBX_QUEUE}"/>
+          <!-- NOTE: Define a separate gateway for your internal PBX -->
+          <action application="bridge" data="sofia/gateway/internal-pbx-trunk/\${X_PBX_QUEUE}"/>
+        </condition>
 
-       <!-- 2) Bridge the call to the gateway -->
-       <action application="bridge" data="sofia/gateway/\${X_TRUNK}/\${destination_number}"/>
+        <condition field="\${AMD_LABEL}" expression="^MACHINE_VOICEMAIL$">
+          <!-- VOICEMAIL: Hang up or implement voicemail drop -->
+          <action application="log" data="INFO: Voicemail detected. Hanging up call \${uuid}."/>
+          <action application="hangup" data="NORMAL_CLEARING"/>
+        </condition>
 
-       <!-- 3) Post-bridge routing based on AMD result (set by external service via ESL) -->
-       <condition field="\${AMD_LABEL}" expression="^HUMAN$">
-         <action application="set" data="cc_export_vars=X_CAMPAIGN,X_LIST,X_LEAD,X_TRUNK"/>
-         <action application="callcenter" data="sales"/>
-       </condition>
-       <condition field="\${AMD_LABEL}" expression="^(VOICEMAIL|FAX|SIT|UNKNOWN)$">
-         <action application="hangup" data="NORMAL_CLEARING"/>
-       </condition>
+        <condition field="\${AMD_LABEL}" expression="^(FAX|SIT|UNKNOWN)$">
+          <!-- OTHER: Hang up -->
+          <action application="log" data="INFO: \${AMD_LABEL} detected. Hanging up call \${uuid}."/>
+          <action application="hangup" data="NORMAL_CLEARING"/>
+        </condition>
+
+        <!-- Fallback: if no AMD result, hang up -->
+        <action application="log" data="WARNING: No AMD result for call \${uuid}. Hanging up."/>
+        <action application="hangup" data="NORMAL_CLEARING"/>
      </condition>
    </extension>
    \`\`\`
 
-**5. CDR & Reporting Schema (PostgreSQL):**
+**4. CDR & Reporting Schema (PostgreSQL):**
    - **Mechanism:** Use \`mod_json_cdr\` to post a JSON payload to the backend's \`/cdr\` endpoint.
    - **Extended Fields (PostgreSQL table \`cdr\`):**
      - id, call_id, start_stamp, answer_stamp, end_stamp, billsec
@@ -95,7 +106,7 @@ Your task is to take the following comprehensive technical blueprint and market 
      - **Signaling**: fs_hangup_cause, sip_code, sip_disposition, sip_term_status
      - **PDD**: progress_msec, progress_media_msec, early_media_ms
 
-**6. FreeSWITCH Configuration Templates:**
+**5. FreeSWITCH Configuration Templates:**
 
 **A. event_socket.conf.xml:**
 \`\`\`xml
@@ -109,28 +120,26 @@ Your task is to take the following comprehensive technical blueprint and market 
 </configuration>
 \`\`\`
 
-**B. callcenter.conf.xml:**
-\`\`\`xml
-<configuration name="callcenter.conf" description="Callcenter / ACD">
-  <queues>
-    <queue name="sales">
-      <param name="strategy" value="longest-idle-agent"/>
-      <param name="moh-sound" value="local_stream://moh"/>
-      <param name="time-base-score" value="queue"/>
-      <param name="max-wait-time" value="0"/>
-      <param name="tier-rules-apply" value="false"/>
-      <param name="discard-abandoned-after" value="60"/>
-      <param name="abandoned-resume-allowed" value="false"/>
-    </queue>
-  </queues>
-  <agents>
-    <agent name="1001" type="callback" contact="user/1001" status="Logged Out"/>
-  </agents>
-  <tiers>
-    <tier agent="1001" queue="sales" level="1" position="1"/>
-  </tiers>
-</configuration>
-\`\`\`
+**B. Gateway Configurations (Example):**
+- **Outbound Provider Trunk (e.g., to Twilio, Bandwidth):**
+  \`sofia/conf/dialer/outbound_provider.xml\`
+  \`\`\`xml
+  <gateway name="outbound-provider-trunk">
+    <param name="username" value="..."/>
+    <param name="password" value="..."/>
+    <param name="proxy" value="sip.provider.com"/>
+    <param name="register" value="false"/>
+  </gateway>
+  \`\`\`
+- **Internal PBX Trunk (to transfer calls to):**
+  \`sofia/conf/dialer/internal_pbx.xml\`
+  \`\`\`xml
+  <gateway name="internal-pbx-trunk">
+    <param name="proxy" value="192.168.1.100"/> <!-- IP of your PBX -->
+    <param name="register" value="false"/>
+    <param name="context" value="from-dialer"/> <!-- Optional context on PBX side -->
+  </gateway>
+  \`\`\`
 
 **C. json_cdr.conf.xml:**
 \`\`\`xml
@@ -148,7 +157,7 @@ Your task is to take the following comprehensive technical blueprint and market 
   "duration": $\{duration}, "billsec": $\{billsec},
   "caller_id_number": "$\{caller_id_number}", "destination_number": "$\{destination_number}",
   "campaign_id": "$\{X_CAMPAIGN}", "list_id": "$\{X_LIST}", "lead_id": "$\{X_LEAD}", "trunk_id": "$\{X_TRUNK}",
-  "queue": "$\{cc_queue}", "agent_id": "$\{cc_agent}",
+  "queue": "$\{X_PBX_QUEUE}", "agent_id": "$\{cc_agent}",
   "amd_label": "$\{AMD_LABEL}", "amd_confidence": "$\{AMD_CONFIDENCE}",
   "fs_hangup_cause": "$\{hangup_cause}",
   "sip_code": "$\{sip_hangup_cause}",
@@ -162,14 +171,14 @@ Your task is to take the following comprehensive technical blueprint and market 
 </configuration>
 \`\`\`
 
-**7. Go-Live & Production Checklist (P0)**
+**6. Go-Live & Production Checklist (P0)**
    **1. Database Setup:**
      - Run \`psql -d dialer -f sql/schema.sql\` & \`sql/sample_data.sql\`.
      - Load full NANPA area code list into \`state_area_codes\`.
      - Ensure leads have E.164 numbers and correct timezones.
      - Create and populate the \`call_windows\` table for dialing window compliance.
    **2. FreeSWITCH ↔ Backend Connection:**
-     - Deploy XML files.
+     - Deploy XML files (gateways, dialplan, json_cdr).
      - Update passwords and URLs in \`event_socket.conf.xml\` and \`json_cdr.conf.xml\`.
      - Verify ESL connection: \`telnet 127.0.0.1 8021\`.
    **3. Backend (Node.js) Deployment:**
@@ -184,15 +193,16 @@ Your task is to take the following comprehensive technical blueprint and market 
      - Verify that the extended JSON CDR fields are being correctly populated in the database.
      - Confirm the \`/api/providers/health\` and \`/api/dids/health\` endpoints are working.
 
-**8. End-to-End Acceptance Tests**
+**7. End-to-End Acceptance Tests**
    - **Golden Path:** Start campaign, see a "Connected" call in the UI, and verify a CDR with \`billsec > 0\` is created.
    - **DID by State:** Call numbers in diferentes states (TX, CA) and confirm the correct state-specific Caller ID was used via the \`attempts\` table.
    - **Dialing Window:** Schedule a dialing window and confirm the orchestrator does not place calls outside of it.
    - **Safe Harbor Abandon:** Manually hold a call without connecting an agent and verify it's abandoned with the correct message after 2 seconds.
    - **SIP Mix / PDD:** Generate failed calls (486, 404, 503) and verify the SQL queries for provider health report them correctly.
    - **Trunk Failover:** Simulate a high 5xx error rate on a trunk and verify the orchestrator reduces its weight.
+   - **Human to PBX:** Set AMD_LABEL=HUMAN and verify the call is bridged to your internal PBX trunk.
 
-**9. Key Operational Metrics (SQL Queries)**
+**8. Key Operational Metrics (SQL Queries)**
    **A) Provider Health (Last 15 min):**
    \`\`\`sql
     SELECT trunk_id,
@@ -216,7 +226,7 @@ Your task is to take the following comprehensive technical blueprint and market 
 **Instructions for the AI:**
 - Generate a comprehensive, well-structured developer integration guide based on this enriched blueprint.
 - Use Markdown for formatting. Include clear headings, lists, and properly formatted code blocks.
-- Ensure all provided context (market, compliance, AMD, STIR/SHAKEN), configurations, and SQL queries are included and explained.
+- Emphasize the separation of concerns: the dialer handles outbound calls, and an external PBX handles agents.
 - The guide must be professional, actionable, and assume a competent backend developer audience with FreeSWITCH experience.
 - Return the entire guide as a single, consolidated string.
   `,

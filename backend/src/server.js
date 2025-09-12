@@ -73,17 +73,18 @@ eslInit({ onEvent: (ev)=> {
     const uuid = ev['Unique-ID'];
     broadcast({type:'call.update', uuid, state:'Connected', ts:Date.now(), number: ev['Caller-Destination-Number'] });
     
-    // Inicia timer de "Safe Harbor": si en 2s no hay bridge, es abandono.
+    // Inicia timer de "Safe Harbor": si en 2s no hay bridge a un agente (en la PBX externa), es abandono.
     const timer = setTimeout(()=> {
       broadcast({ type:'call.update', uuid, state:'AbandonedSafeHarbor', ts:Date.now() });
+      // El dialplan de FreeSWITCH debería encargarse de esto, pero como fallback:
       esl.api(`uuid_broadcast ${uuid} playback::ivr/you_will_be_called_again.wav both`);
       setTimeout(()=> esl.api(`uuid_kill ${uuid}`), 1500); // dar tiempo al playback
       activeCallTimers.delete(uuid);
     }, 2000);
     activeCallTimers.set(uuid, timer);
   }
-  else if (ev['Event-Name']==='CHANNEL_BRIDGE') {
-    // La llamada se conectó a un agente, cancela el timer de abandono
+  else if (ev['Event-Name']==='CHANNEL_BRIDGE' || ev['Event-Name'] === 'CHANNEL_EXECUTE_COMPLETE' && ev['Application'] === 'transfer') {
+    // La llamada se conectó a la PBX, cancela el timer de abandono
     const uuid = ev['Unique-ID'];
     if (activeCallTimers.has(uuid)) {
       clearTimeout(activeCallTimers.get(uuid));
