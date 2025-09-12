@@ -1,4 +1,3 @@
-
 import 'dotenv/config';
 import express from 'express';
 import { WebSocketServer } from 'ws';
@@ -8,7 +7,9 @@ import crypto from 'crypto';
 import { router as campaigns } from './routes/campaigns.js';
 import { router as cdr } from './routes/cdr.js';
 import { router as reports } from './routes/reports.js';
-import { eslInit } from './services/esl.js';
+import { router as providers } from './routes/providers.js';
+import { router as dids } from './routes/dids.js';
+import { eslInit, getEslSocket } from './services/esl.js';
 
 const app = express();
 app.use(cors());
@@ -30,6 +31,9 @@ app.get('/health', (_req,res)=>res.json({ ok:true, ts:Date.now() }));
 app.use('/api/campaigns', campaigns);
 app.use('/cdr', cdr);
 app.use('/api/reports', reports);
+app.use('/api/providers', providers);
+app.use('/api/dids', dids);
+
 
 // WebSocket realtime
 const wss = new WebSocketServer({ noServer: true });
