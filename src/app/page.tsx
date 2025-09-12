@@ -7,7 +7,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from '@/components/ui/select';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Switch } from '@/components/ui/switch';
 import { Download, PhoneCall, Play, Plus, Settings, Upload, User, Activity, Database, Factory, PhoneIncoming, PhoneOutgoing, PhoneOff, FileDown, Bot, Code, Volume2, HardDrive } from 'lucide-react';
 import { generateIntegrationNotes } from '@/ai/flows/generate-integration-notes';
@@ -198,7 +198,7 @@ export default function DialerInteligenteApp() {
   // Connect to the WebSocket, assuming it's served on the same host.
   // In a real app, you'd get this from an environment variable.
   const wsUrl = typeof window !== 'undefined' 
-    ? `${window.location.protocol.replace('http', 'ws')}//${window.location.host}/ws`
+    ? `${window.location.protocol.replace('http', 'ws')}//${window.location.host.replace(/:\d+$/, ':9003')}/ws`
     : '';
   useDialerWS(wsUrl);
 
@@ -833,6 +833,76 @@ function Reports({ allCalls, campaigns }: { allCalls: LiveCall[]; campaigns: Cam
 
 // -------------------------- Ajustes (Troncales/Proveedores) --------------------------
 
+type Health = {
+  window: string;
+  items: Array<{
+    trunk_id: number|null;
+    asr: number|null;
+    p50_pdd_ms: number|null;
+    p90_pdd_ms: number|null;
+    c4xx: number; c5xx: number; busy_486: number; forb_403: number; notfound_404: number;
+    sip_mix?: any;
+  }>;
+};
+
+function ProvidersHealth() {
+  const [health, setHealth] = useState<Health|null>(null);
+
+  useEffect(()=>{
+    // In a real app, you'd get this from an environment variable.
+    const apiUrl = typeof window !== 'undefined' 
+    ? `${window.location.protocol}//${window.location.host.replace(/:\d+$/, ':9003')}`
+    : '';
+
+    fetch(`${apiUrl}/api/providers/health?window=15m`, {
+      // headers: { Authorization: `Bearer ${process.env.NEXT_PUBLIC_API_TOKEN||''}` }
+    }).then(r=>r.json()).then(setHealth).catch((e) => {
+      console.error("Failed to fetch provider health:", e)
+      setHealth(null)
+    });
+  },[]);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Salud de Proveedores (últimos 15 minutos)</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Troncal</TableHead>
+              <TableHead>ASR</TableHead>
+              <TableHead>PDD p50</TableHead>
+              <TableHead>PDD p90</TableHead>
+              <TableHead>4xx</TableHead>
+              <TableHead>5xx</TableHead>
+              <TableHead>486 Busy</TableHead>
+              <TableHead>403 Forbidden</TableHead>
+              <TableHead>404 Not Found</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {health?.items?.map((it: any, i: number)=>(
+              <TableRow key={i}>
+                <TableCell>{it.trunk_id ?? '—'}</TableCell>
+                <TableCell>{it.asr !== null ? (it.asr*100).toFixed(1)+'%' : '—'}</TableCell>
+                <TableCell>{it.p50_pdd_ms ?? '—'} ms</TableCell>
+                <TableCell>{it.p90_pdd_ms ?? '—'} ms</TableCell>
+                <TableCell>{it.c4xx ?? it.sip_mix?.['4xx'] ?? 0}</TableCell>
+                <TableCell>{it.c5xx ?? it.sip_mix?.['5xx'] ?? 0}</TableCell>
+                <TableCell>{it.busy_486 ?? it.sip_mix?.['486'] ?? 0}</TableCell>
+                <TableCell>{it.forb_403 ?? it.sip_mix?.['403'] ?? 0}</TableCell>
+                <TableCell>{it.notfound_404 ?? it.sip_mix?.['404'] ?? 0}</TableCell>
+              </TableRow>
+            )) || <TableRow><TableCell colSpan={9}>Sin datos</TableCell></TableRow>}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
+  )
+}
+
 function TrunksSettings({ trunks, setTrunks }: { trunks: Trunk[]; setTrunks: any }) {
   const [name, setName] = useState('US-CLI-BACKUP');
   const [host, setHost] = useState('sip.backup.net');
@@ -852,8 +922,31 @@ function TrunksSettings({ trunks, setTrunks }: { trunks: Trunk[]; setTrunks: any
 
   return (
     <div className="space-y-6">
-       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <Card className="shadow-sm">
+      <ProvidersHealth />
+      <Card className="shadow-sm">
+        <CardHeader>
+          <CardTitle>Troncales Configurados</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {trunks.map(t => (
+            <div key={t.id} className="flex items-center gap-3 p-3 border rounded-xl">
+              <div className="font-medium">{t.name}</div>
+              <div className="text-slate-500">{t.host}</div>
+              <Badge variant="secondary">{t.codecs}</Badge>
+              <Badge variant="secondary">{t.cliRoute}</Badge>
+              <Badge variant="secondary">CPS {t.maxCPS}</Badge>
+              <div className="ml-auto flex items-center gap-2">
+                <Switch checked={t.enabled} onCheckedChange={(val)=>{
+                  setTrunks((prev: Trunk[]) => prev.map(x => x.id === t.id ? { ...x, enabled: !!val } : x));
+                }}/>
+                <Button size="sm" variant="outline" disabled>Editar</Button>
+                <Button size="sm" variant="destructive" onClick={() => deleteTrunk(t.id)}>Eliminar</Button>
+              </div>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+       <Card className="shadow-sm">
           <CardHeader>
             <CardTitle>Nueva troncal</CardTitle>
             <CardDescription>Define proveedores y límites (CPS, codecs). El backend generará dialstrings y peers.</CardDescription>
@@ -890,40 +983,6 @@ function TrunksSettings({ trunks, setTrunks }: { trunks: Trunk[]; setTrunks: any
             </div>
           </CardContent>
         </Card>
-        <Card className="shadow-sm">
-        <CardHeader>
-          <CardTitle>Salud de Proveedores</CardTitle>
-          <CardDescription>
-            Monitoriza RTT, ASR, y la mezcla de respuestas SIP por troncal (placeholder).
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-slate-500">Conectar PJSIP qualify, RTCP/RTT y CDR para KPIs por proveedor.</p>
-        </CardContent>
-        </Card>
-        </div>
-
-      <Card className="shadow-sm">
-        <CardHeader><CardTitle>Troncales Configurados</CardTitle></CardHeader>
-        <CardContent className="space-y-3">
-          {trunks.map(t => (
-            <div key={t.id} className="flex items-center gap-3 p-3 border rounded-xl">
-              <div className="font-medium">{t.name}</div>
-              <div className="text-slate-500">{t.host}</div>
-              <Badge variant="secondary">{t.codecs}</Badge>
-              <Badge variant="secondary">{t.cliRoute}</Badge>
-              <Badge variant="secondary">CPS {t.maxCPS}</Badge>
-              <div className="ml-auto flex items-center gap-2">
-                <Switch checked={t.enabled} onCheckedChange={(val)=>{
-                  setTrunks((prev: Trunk[]) => prev.map(x => x.id === t.id ? { ...x, enabled: !!val } : x));
-                }}/>
-                <Button size="sm" variant="outline" disabled>Editar</Button>
-                <Button size="sm" variant="destructive" onClick={() => deleteTrunk(t.id)}>Eliminar</Button>
-              </div>
-            </div>
-          ))}
-        </CardContent>
-      </Card>
     </div>
   );
 }
@@ -1300,11 +1359,11 @@ function SettingsPage() {
       <CardHeader>
         <CardTitle>Ajustes Globales</CardTitle>
         <CardDescription>
-          Parámetros generales del sistema (placeholder).
+          Aquí vivirá la configuración global del sistema (branding, autenticación, límites por defecto, etc.).
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <p className="text-sm text-slate-500">Aquí irían configuraciones globales del dialer.</p>
+        <p className="text-sm text-slate-500">Parámetros generales del sistema (placeholder).</p>
       </CardContent>
     </Card>
   );

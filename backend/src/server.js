@@ -9,7 +9,7 @@ import { router as cdr } from './routes/cdr.js';
 import { router as reports } from './routes/reports.js';
 import { router as providers } from './routes/providers.js';
 import { router as dids } from './routes/dids.js';
-import { eslInit, getEslSocket } from './services/esl.js';
+import { eslInit } from './services/esl.js';
 
 const app = express();
 app.use(cors());
@@ -50,6 +50,7 @@ const server = app.listen(process.env.PORT || 9003, ()=>{
 
 // Upgrade to WS
 server.on('upgrade', (req, socket, head)=>{
+  // Solo atender /ws
   if (req.url !== '/ws') {
     socket.destroy();
     return;
