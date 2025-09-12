@@ -124,6 +124,26 @@ Your task is to take the following comprehensive technical blueprint for a profe
 **3.7. Dispositions & Callbacks (P0->P1):**
    - **UI Adds:** CRUD for dispositions and their associated rules (retry, DNC, etc.). Calendar for scheduling callbacks.
    - **DoD:** At end of call, orchestrator applies disposition rules to update lead/schedule callbacks.
+   
+**3.8. Audio TTS/Prompts & Scripts (P2):**
+    - **UI Adds:** Library of prompts, assignment to campaigns, caching. Voicemail drop config per campaign (file or TTS). Script editor with variables ({{firstName}}), quick responses, and versioning.
+    - **DoD:** Audio preview player, normalized format (e.g., WAV 16kHz).
+
+**3.9. Reports (P1):**
+    - **UI Adds:** Filters (date, campaign, provider, agent, disposition, AMD). Grouping by campaign, provider, agent, hour. Header metrics (ASR, ACD, contact rate, AMD split, abandon 60s).
+    - **DoD:** Standard views for Campaign, Provider, Agent, Hour, and AMD matrix. CSV export and scheduled reports.
+
+**3.10. Integrations (P2):**
+    - **UI Adds:** "Generate Tech Guide" button to provide a zip with config files. Checklist for fs_cli commands, ESL tests, CDR posts.
+    - **DoD:** Guide generation with all necessary configs and a README.
+
+**3.11. Audit Log (P2):**
+    - **UI Adds:** Audit table (timestamp, actor, IP, action, target, details). Filters by date, user, action. CSV export.
+    - **DoD:** Log critical actions (CRUD campaigns, start/stop, trunk changes, logins). 180-day retention.
+
+**3.12. Compliance (P2):**
+    - **UI Adds:** Config for abandon cap (60s window), dialing windows by timezone, DNC lists, ring timeouts. Consent/recording fields.
+    - **DoD:** Pre-dial check to block calls outside windows or to DNC numbers.
 
 **4. Dialplan & AMD Logic (FreeSWITCH XML):**
    - **Audio Fork for AI AMD:**
