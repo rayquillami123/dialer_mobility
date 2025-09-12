@@ -25,6 +25,7 @@ import TopSipByDid from '@/components/TopSipByDid';
 import ProvidersHealth from '@/components/ProvidersHealth';
 import AbandonmentReport from '@/components/AbandonmentReport';
 import AbandonmentTrend from '@/components/AbandonmentTrend';
+import DashboardAutoProtect from '@/components/DashboardAutoProtect';
 
 /**
  * FRONTEND MVP – DIALER INTELIGENTE (FreeSWITCH backend)
@@ -237,7 +238,7 @@ export default function DialerInteligenteApp() {
         </nav>
 
         <main className="lg:col-span-9 xl:col-span-10">
-          {active === 'dashboard' && <Dashboard />} 
+          {active === 'dashboard' && <Dashboard campaigns={campaigns}/>} 
           {active === 'campaigns' && <Campaigns campaigns={campaigns} setCampaigns={setCampaigns} lists={lists} trunks={trunks} schedules={schedules}/>} 
           {active === 'lists' && <Lists lists={lists} setLists={setLists}/>} 
           {active === 'realtime' && <Realtime />} 
@@ -276,13 +277,23 @@ function Stat({ title, value, icon: Icon }: { title: string; value: React.ReactN
   );
 }
 
-function Dashboard() {
+function Dashboard({ campaigns }: { campaigns: Campaign[] }) {
   const kpi = useDialerStore((s) => s.kpi);
   const calls = useDialerStore((s) => Object.values(s.calls));
   
   const humans = calls.filter(c => c.amd?.label === 'HUMAN').length;
   const vm = calls.filter(c => c.amd?.label === 'VOICEMAIL').length;
   const otherAmd = calls.filter(c => ['FAX', 'SIT'].includes(c.amd?.label ?? '')).length;
+
+  const campaignMap = useMemo(() => {
+    const map: Record<number, string> = {};
+    campaigns.forEach(c => map[Number(c.id)] = c.name);
+    return map;
+  }, [campaigns]);
+
+  const runningCampaignIds = useMemo(() => {
+    return campaigns.filter(c => c.status === 'Running').map(c => Number(c.id));
+  }, [campaigns]);
 
   return (
     <div className="space-y-6">
@@ -294,6 +305,12 @@ function Dashboard() {
         <Stat title="SIT/Fax" value={otherAmd} icon={Factory}/>
         <Stat title="Abandono (60s)" value={kpi ? (kpi.abandon60s * 100).toFixed(2) + '%' : '...'} icon={Activity}/>
       </div>
+      
+      <DashboardAutoProtect
+        campaignIds={runningCampaignIds}
+        campaignLabels={campaignMap}
+        columns={3}
+      />
 
       <Card className="shadow-sm">
         <CardHeader>
