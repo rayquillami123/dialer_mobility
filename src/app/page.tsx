@@ -1,3 +1,4 @@
+
 'use client';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
@@ -28,6 +29,8 @@ import AbandonmentTrend from '@/components/AbandonmentTrend';
 import DashboardAutoProtect from '@/components/DashboardAutoProtect';
 import DashboardAutoProtectSummary from '@/components/DashboardAutoProtectSummary';
 import GlobalAlertBar from '@/components/GlobalAlertBar';
+import RequireRole from '@/components/RequireRole';
+import { useAuth } from '@/hooks/useAuth';
 
 /**
  * FRONTEND MVP – DIALER INTELIGENTE (FreeSWITCH backend)
@@ -191,7 +194,7 @@ const sections = [
 
 type SectionId = (typeof sections)[number]['id'];
 
-export default function DialerInteligenteApp() {
+function DialerInteligenteMain() {
   const [active, setActive] = useState<SectionId>('dashboard');
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [lists, setLists] = useState<LeadList[]>([]);
@@ -204,6 +207,8 @@ export default function DialerInteligenteApp() {
     { id: '1', name: 'Horario Laboral (9am-8pm ET)', details: 'L-V, 9am-8pm en zona horaria del Este' },
     { id: '2', name: 'Fin de Semana (10am-4pm PT)', details: 'S-D, 10am-4pm en zona horaria del Pacífico' },
   ]);
+  
+  const { logout } = useAuth();
   
   // Connect to the WebSocket, assuming it's served on the same host.
   // In a real app, you'd get this from an environment variable.
@@ -229,6 +234,7 @@ export default function DialerInteligenteApp() {
             <Button size="sm" onClick={() => setActive('campaigns')}>
               <Plus className="mr-2 h-4 w-4"/> Nueva campaña
             </Button>
+            <Button variant="ghost" size="sm" onClick={logout}>Logout</Button>
           </div>
         </div>
       </header>
@@ -265,6 +271,16 @@ export default function DialerInteligenteApp() {
     </div>
   );
 }
+
+
+export default function DialerInteligenteApp() {
+  return (
+    <RequireRole roles={['admin', 'supervisor', 'agent', 'viewer']}>
+      <DialerInteligenteMain />
+    </RequireRole>
+  );
+}
+
 
 // -------------------------- Dashboard --------------------------
 

@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
@@ -8,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
+import { useAuth } from '@/hooks/useAuth';
 
 type Row = {
   campaign_id: number | null;
@@ -20,8 +22,8 @@ type ApiResp = { window: string; items: Row[] };
 type SortKey = 'campaign' | 'answered' | 'abandoned' | 'pct';
 
 export default function AbandonmentReport() {
+  const { authedFetch } = useAuth();
   const API = process.env.NEXT_PUBLIC_API || '';
-  const TOKEN = process.env.NEXT_PUBLIC_API_TOKEN || '';
 
   const [windowVal, setWindowVal] = useState<'15m' | '60m' | '1d' | '7d'>('1d');
   const [rows, setRows] = useState<Row[]>([]);
@@ -35,10 +37,7 @@ export default function AbandonmentReport() {
     setLoading(true);
     setErr('');
     try {
-      const r = await fetch(`${API}/api/reports/abandonment?window=${windowVal}`, {
-        headers: TOKEN ? { Authorization: `Bearer ${TOKEN}` } : undefined,
-        cache: 'no-store',
-      });
+      const r = await authedFetch(`${API}/api/reports/abandonment?window=${windowVal}`);
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const data: ApiResp = await r.json();
 

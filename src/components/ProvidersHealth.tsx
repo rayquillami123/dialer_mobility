@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect, useState }from 'react';
@@ -5,6 +6,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from './ui/button';
+import { useAuth } from '@/hooks/useAuth';
 
 type HealthItem = {
     trunk_id: number;
@@ -15,12 +17,10 @@ type HealthItem = {
     sip_mix: Record<string, number>;
 };
 
-type ApiResp = { items: HealthItem[] };
-
 export default function ProvidersHealth() {
+    const { authedFetch } = useAuth();
     const API = process.env.NEXT_PUBLIC_API || '';
-    const TOKEN = process.env.NEXT_PUBLIC_API_TOKEN || '';
-    const [health, setHealth] = useState<ApiResp | null>(null);
+    const [health, setHealth] = useState<HealthItem[] | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
 
@@ -28,10 +28,7 @@ export default function ProvidersHealth() {
         setLoading(true);
         setError('');
         try {
-            const r = await fetch(`${API}/api/providers/health`, {
-                headers: TOKEN ? { 'Authorization': `Bearer ${TOKEN}` } : undefined,
-                cache: 'no-store'
-            });
+            const r = await authedFetch(`${API}/api/providers/health`);
             if (!r.ok) throw new Error(`HTTP error ${r.status}`);
             const data = await r.json();
             setHealth(data);
@@ -78,7 +75,7 @@ export default function ProvidersHealth() {
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                            {health.items?.map((item: HealthItem) => (
+                            {health.map((item: HealthItem) => (
                                 <TableRow key={item.trunk_id}>
                                     <TableCell>{item.trunk_id}</TableCell>
                                     <TableCell>{(item.asr * 100).toFixed(1)}%</TableCell>

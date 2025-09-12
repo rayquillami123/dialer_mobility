@@ -1,9 +1,11 @@
 
+
 import 'dotenv/config';
 import express from 'express';
 import { WebSocketServer } from 'ws';
 import { Pool } from 'pg';
 import cors from 'cors';
+import cookieParser from 'cookie-parser';
 import { router as campaigns } from './routes/campaigns.js';
 import { router as cdr } from './routes/cdr.js';
 import { router as reports } from './routes/reports.js';
@@ -11,9 +13,15 @@ import { router as providers } from './routes/providers.js';
 import { router as dids } from './routes/dids.js';
 import { eslInit } from './services/esl.js';
 import { router as recordings } from './routes/recordings.js';
+import { router as auth } from './routes/auth.js';
+import { bearerOrApiKey, authenticate } from './mw/authz.js';
 
 const app = express();
-app.use(cors());
+app.use(cors({
+  origin: process.env.CORS_ORIGIN?.split(',') || true,
+  credentials: true,
+}));
+app.use(cookieParser());
 app.use(express.json({ limit: '2mb' }));
 
 // (Opcional) servir descargables si defines DOWNLOADS_DIR
@@ -22,19 +30,16 @@ if (process.env.DOWNLOADS_DIR) {
 }
 
 // Auth Bearer simple (excepto /cdr que idealmente aseguras por IP/Nginx)
-app.use((req,res,next)=>{
-  const token = (req.headers['authorization']||'').replace('Bearer ','');
-  if (!process.env.API_TOKEN) return next();
-  if (token && token === process.env.API_TOKEN) return next();
-  if (req.path.startsWith('/cdr')) return next();
-  res.status(401).json({error:{code:'unauthorized', message:'invalid token'}});
-});
+app.use(bearerOrApiKey);
+app.use(authenticate(db));
+
 
 // DB
 export const db = new Pool();
 
 // Rutas
 app.get('/health', (_req,res)=>res.json({ ok:true, ts:Date.now() }));
+app.use('/api/auth', auth);
 app.use('/api/campaigns', campaigns);
 app.use('/cdr', cdr);
 app.use('/api/reports', reports);

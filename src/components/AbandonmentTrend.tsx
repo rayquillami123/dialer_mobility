@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
@@ -9,6 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import {
   ResponsiveContainer, ComposedChart, Line, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Legend, ReferenceLine,
 } from 'recharts';
+import { useAuth } from '@/hooks/useAuth';
 
 type Point = {
   bucket_start: string;     // ISO
@@ -24,8 +26,8 @@ type ApiResp = {
 };
 
 export default function AbandonmentTrend() {
+  const { authedFetch } = useAuth();
   const API = process.env.NEXT_PUBLIC_API || '';
-  const TOKEN = process.env.NEXT_PUBLIC_API_TOKEN || '';
 
   const [campaignId, setCampaignId] = useState<string>(''); // vacío => todas
   const [hours, setHours] = useState<'1' | '6' | '24' | '72'>('6');
@@ -43,10 +45,7 @@ export default function AbandonmentTrend() {
       params.set('bucket', bucket);
       if (campaignId) params.set('campaign_id', campaignId);
 
-      const r = await fetch(`${API}/api/reports/abandonment/timeseries?${params.toString()}`, {
-        headers: TOKEN ? { Authorization: `Bearer ${TOKEN}` } : undefined,
-        cache: 'no-store',
-      });
+      const r = await authedFetch(`${API}/api/reports/abandonment/timeseries?${params.toString()}`);
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const json: ApiResp = await r.json();
       setData(Array.isArray(json.points) ? json.points : []);

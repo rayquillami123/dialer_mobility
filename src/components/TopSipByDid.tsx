@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
@@ -7,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
+import { useAuth } from '@/hooks/useAuth';
 
 type TopSipRow = {
   did_id: number | null;
@@ -30,13 +32,13 @@ type DidHealthItem = {
   sit: number | null;
   reached_cap: boolean | null;
 };
-type DidHealthResponse = { items: DidHealthItem[] };
+type DidHealthResponse = DidHealthItem[];
 
 type SortKey = 'did' | 'state' | 'code' | 'count' | 'pct';
 
 export default function TopSipByDid() {
+  const { authedFetch } = useAuth();
   const API = process.env.NEXT_PUBLIC_API || '';
-  const TOKEN = process.env.NEXT_PUBLIC_API_TOKEN || '';
 
   const [windowVal, setWindowVal] = useState<'15m' | '60m' | '1d'>('15m');
   const [rows, setRows] = useState<TopSipRow[]>([]);
@@ -52,14 +54,8 @@ export default function TopSipByDid() {
     setErr('');
     try {
       const [r1, r2] = await Promise.all([
-        fetch(`${API}/api/dids/top-sip?window=${windowVal}`, {
-          headers: TOKEN ? { Authorization: `Bearer ${TOKEN}` } : undefined,
-          cache: 'no-store',
-        }),
-        fetch(`${API}/api/dids/health`, {
-          headers: TOKEN ? { Authorization: `Bearer ${TOKEN}` } : undefined,
-          cache: 'no-store',
-        }),
+        authedFetch(`${API}/api/dids/top-sip?window=${windowVal}`),
+        authedFetch(`${API}/api/dids/health`),
       ]);
       if (!r1.ok) throw new Error(`TopSIP HTTP ${r1.status}`);
       if (!r2.ok) throw new Error(`DIDs HTTP ${r2.status}`);
@@ -67,7 +63,7 @@ export default function TopSipByDid() {
       const data1: TopSipResponse = await r1.json();
       const data2: DidHealthResponse = await r2.json();
       setRows(Array.isArray(data1.rows) ? data1.rows : []);
-      setDids(Array.isArray(data2.items) ? data2.items : []);
+      setDids(Array.isArray(data2) ? data2 : []);
     } catch (e: any) {
       setErr(e?.message || 'Error al cargar datos');
     } finally {

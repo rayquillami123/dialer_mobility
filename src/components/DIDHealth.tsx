@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
@@ -9,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Progress } from '@/components/ui/progress';
+import { useAuth } from '@/hooks/useAuth';
 
 type DidHealthItem = {
   id: number;
@@ -40,8 +42,8 @@ type SortKey =
   | 'util';
 
 export default function DIDHealth() {
+  const { authedFetch } = useAuth();
   const API = process.env.NEXT_PUBLIC_API || '';
-  const TOKEN = process.env.NEXT_PUBLIC_API_TOKEN || '';
 
   const [items, setItems] = useState<DidHealthItem[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -55,13 +57,10 @@ export default function DIDHealth() {
     try {
       setLoading(true);
       setError('');
-      const r = await fetch(`${API}/api/dids/health`, {
-        headers: TOKEN ? { Authorization: `Bearer ${TOKEN}` } : undefined,
-        cache: 'no-store',
-      });
+      const r = await authedFetch(`${API}/api/dids/health`);
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const data: ApiResponse = await r.json();
-      setItems(Array.isArray(data.items) ? data.items : []);
+      const data: DidHealthItem[] = await r.json();
+      setItems(Array.isArray(data) ? data : []);
     } catch (e: any) {
       setError(e?.message || 'Error al cargar datos');
     } finally {
