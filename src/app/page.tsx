@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Switch } from '@/components/ui/switch';
-import { Download, PhoneCall, Play, Plus, Settings, Upload, User, Activity, Database, Factory, PhoneIncoming, PhoneOutgoing, PhoneOff, FileDown, Bot, Code, Volume2, HardDrive } from 'lucide-react';
+import { Download, PhoneCall, Play, Plus, Settings, Upload, User, Activity, Database, Factory, PhoneOutgoing, PhoneOff, FileDown, Bot, Code, Volume2, HardDrive } from 'lucide-react';
 import { generateIntegrationNotes } from '@/ai/flows/generate-integration-notes';
 import { AmiAriNotesForm, Trunk } from '@/lib/types';
 import { suggestAMIARIConnectionNotes } from '@/ai/flows/suggest-ami-ari-connection-notes';
@@ -20,34 +20,18 @@ import { useDialerWS } from '@/hooks/useDialerWS';
 import { useDialerStore } from '@/store/dialer';
 
 /**
- * FRONTEND MVP – DIALER INTELIGENTE (Asterisk backend)
+ * FRONTEND MVP – DIALER INTELIGENTE (FreeSWITCH backend)
  * ----------------------------------------------------
  * Arquitectura UI (sin backend):
  * - Dashboard en tiempo real (KPIs + monitor de llamadas)
  * - Campañas (CRUD + configuración por tipo: Predictive, Power, Preview, Press-1)
  * - Listas / Leads (carga CSV, validación básica, preview)
  * - Monitor en tiempo real (tabla de llamadas con estados y AMD)
- * - Escritorio de Agente (mock: contestar/colgar; placeholder para WebRTC/SIP)
  * - Reportes (exportar CSV de CDR/llamadas)
  * - Ajustes (Troncales/Proveedores + parámetros globales)
  *
- * Hooks a implementar en backend (sugeridos):
- * - SSE/WS:  GET /api/realtime/calls (stream de llamadas)  // también ARI websockets
- * - REST:    POST /api/campaigns, GET /api/campaigns, PUT /api/campaigns/:id, PATCH /status
- * - REST:    POST /api/lists/upload  (devuelve listId)  |  GET /api/lists/:id
- * - REST:    GET /api/reports/cdr?from&to&campaignId  (paginado + CSV)
- * - REST:    GET /api/trunks, POST /api/trunks
- * - REST:    POST /api/agent/actions (answer, hangup, transfer)
- * - AMI/ARI: Bridge, originate, channel vars (X-AMD, X-CAMPAIGN, etc.)
- *
- * AMD (AI):
- * - Opciones UI: "Asterisk AMD" | "AI-ML" | "Hybrid".  Parámetros: silenceThreshold, initialWordMs,
- *   betweenWordsMs, maxAnalysisMs, fax/SIT, y umbrales de confianza.  El backend debe decidir < 1s.
- * - Etiquetas esperadas: HUMAN | VOICEMAIL | FAX | SIT | NOANSWER | UNKNOWN (+ confidence)
- * - Enrutamiento: sólo HUMAN -> agente; los demás -> reglas (mensaje, colgar, reintentar, lista de proveedor)
- *
- * Cumplimiento sugerido (no implementado en UI): caps de abandono (%), pacing ratio, STIR/SHAKEN,
- * listas DNC, ventanas horarias por timezone, registro de consentimiento.
+ * El backend es un "motor de marcación" puro. No gestiona agentes ni colas.
+ * Origina llamadas, detecta humanos, y transfiere las llamadas contestadas a una PBX externa.
  */
 
 // -------------------------- Tipos base --------------------------
@@ -172,8 +156,6 @@ const sections = [
   { id: 'campaigns', label: 'Campañas', icon: PhoneOutgoing },
   { id: 'lists', label: 'Listas / Leads', icon: Database },
   { id: 'realtime', label: 'Tiempo real', icon: PhoneCall },
-  { id: 'agent', label: 'Agente', icon: User },
-  { id: 'queues', label: 'Colas', icon: PhoneIncoming },
   { id: 'dispositions', label: 'Disposiciones', icon: PhoneOff },
   { id: 'scheduler', label: 'Agendador', icon: Play },
   { id: 'providers', label: 'Proveedores', icon: Factory },
@@ -235,8 +217,6 @@ export default function DialerInteligenteApp() {
           {active === 'campaigns' && <Campaigns campaigns={campaigns} setCampaigns={setCampaigns} lists={lists} trunks={trunks}/>} 
           {active === 'lists' && <Lists lists={lists} setLists={setLists}/>} 
           {active === 'realtime' && <Realtime />} 
-          {active === 'agent' && <AgentDesk/>} 
-          {active === 'queues' && <Queues/>}
           {active === 'dispositions' && <Dispositions/>}
           {active === 'scheduler' && <Scheduler/>}
           {active === 'providers' && <TrunksSettings trunks={trunks} setTrunks={setTrunks}/>}
@@ -284,7 +264,7 @@ function Dashboard() {
     <div className="space-y-6">
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
         <Stat title="ASR (5m)" value={kpi ? (kpi.asr5m * 100).toFixed(1) + '%' : '...'} icon={PhoneOutgoing}/>
-        <Stat title="ACD (s)" value={kpi ? kpi.acd.toFixed(1) : '...'} icon={PhoneIncoming}/>
+        <Stat title="ACD (s)" value={kpi ? kpi.acd.toFixed(1) : '...'} icon={PhoneCall}/>
         <Stat title="Humanos" value={humans} icon={User}/>
         <Stat title="Buzones" value={vm} icon={PhoneOff}/>
         <Stat title="SIT/Fax" value={otherAmd} icon={Factory}/>
@@ -743,49 +723,6 @@ function Realtime() {
   );
 }
 
-// -------------------------- Agente --------------------------
-
-function AgentDesk() {
-  const [incoming, setIncoming] = useState<null | { phone: string; campaign?: string }>(null);
-  const ringRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    ringRef.current = window.setInterval(() => {
-      if (Math.random() < 0.15 && !incoming) {
-        setIncoming({ phone: '+1' + (3000000000 + Math.floor(Math.random()*600000000)).toString(), campaign: 'Sales' });
-      }
-    }, 3000);
-    return () => { if (ringRef.current) clearInterval(ringRef.current); };
-  }, [incoming]);
-
-  return (
-    <Card className="shadow-sm">
-      <CardHeader>
-        <CardTitle>Escritorio de agente</CardTitle>
-        <CardDescription>Placeholder UI. Integra tu softphone WebRTC/SIP + controles (mute, hold, transfer).</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {incoming ? (
-          <div className="flex items-center gap-3">
-            <Badge>Entrante</Badge>
-            <div className="font-mono">{incoming.phone}</div>
-            <div className="text-slate-500">{incoming.campaign}</div>
-            <Button size="sm" className="ml-auto">Contestar</Button>
-            <Button size="sm" variant="destructive">Colgar</Button>
-          </div>
-        ) : (
-          <div className="text-slate-500">Esperando llamada…</div>
-        )}
-        <div className="grid md:grid-cols-3 gap-2">
-          <Button variant="outline">Mute</Button>
-          <Button variant="outline">Hold</Button>
-          <Button variant="outline">Transfer</Button>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
 // -------------------------- Reportes --------------------------
 
 function Reports({ allCalls, campaigns }: { allCalls: LiveCall[]; campaigns: Campaign[] }) {
@@ -984,28 +921,6 @@ function TrunksSettings({ trunks, setTrunks }: { trunks: Trunk[]; setTrunks: any
           </CardContent>
         </Card>
     </div>
-  );
-}
-
-// -------------------------- Colas --------------------------
-function Queues() {
-  return (
-    <Card className="shadow-sm">
-      <CardHeader>
-        <CardTitle>Colas & Agentes</CardTitle>
-        <CardDescription>Define colas (sales, support) y asigna agentes con skills/thresholds.</CardDescription>
-      </CardHeader>
-      <CardContent className="grid md:grid-cols-3 gap-4 text-sm">
-        <div className="col-span-1 space-y-2">
-          <Label>Nueva cola</Label>
-          <Input placeholder="sales"/>
-          <Button size="sm" className="mt-2">Crear</Button>
-        </div>
-        <div className="col-span-2">
-          <div className="text-slate-500">Listado de colas (placeholder)</div>
-        </div>
-      </CardContent>
-    </Card>
   );
 }
 
