@@ -156,7 +156,7 @@ Your task is to take the following comprehensive technical blueprint for a profe
       <condition field="destination_number" expression="^(.+)$">
         <!-- Variables de campaña/troncal/lead llegan exportadas desde originate -->
         <!-- 1) Inicia grabación opcional -->
-        <!-- <action application="record_session" data="\${'\\$'}{recordings_dir}/\${uuid}.wav"/> -->
+        <action application="record_session" data="\${recordings_dir}/\${uuid}.wav"/>
 
         <!-- 2) Fork de audio a tu motor AMD/IA (L16/16k) -->
         <action application="uuid_audio_fork" data="\${uuid} start ws://amd-svc:8080 {mix=true,rate=16000,channels=1,format=L16}"/>
@@ -185,25 +185,10 @@ Your task is to take the following comprehensive technical blueprint for a profe
    - **Mechanism:** Use \`mod_json_cdr\` to post a JSON payload to a backend API endpoint.
    - **Extended Fields (PostgreSQL table \`cdr\`):**
      - id, call_id, start_stamp, answer_stamp, end_stamp, billsec
-     - sip_hangup_cause, hangup_cause, progress_ms, early_media_ms
      - campaign_id, list_id, lead_id, trunk_id, agent_id, queue
      - amd_label, amd_confidence, disposition, recording_url
-   - **Example Reporting Query (SIP Mix by Trunk):**
-     \`\`\`sql
-      SELECT trunk_id,
-        COUNT(*) FILTER (WHERE sip_code='200')::float / NULLIF(COUNT(*),0) AS asr,
-        percentile_cont(0.5) WITHIN GROUP (ORDER BY COALESCE(progress_media_msec, progress_msec)) AS p50_pdd_ms,
-        percentile_cont(0.9) WITHIN GROUP (ORDER BY COALESCE(progress_media_msec, progress_msec)) AS p90_pdd_ms,
-        COUNT(*) FILTER (WHERE sip_code BETWEEN '400' AND '499') AS c4xx,
-        COUNT(*) FILTER (WHERE sip_code BETWEEN '500' AND '599') AS c5xx,
-        COUNT(*) FILTER (WHERE sip_code='486') AS busy_486,
-        COUNT(*) FILTER (WHERE sip_code='403') AS forb_403,
-        COUNT(*) FILTER (WHERE sip_code='404') AS notfound_404
-      FROM cdr
-      WHERE received_at >= now() - interval '15 minutes'
-      GROUP BY trunk_id
-      ORDER BY asr ASC;
-     \`\`\`
+     - **Signaling**: hangup_cause, sip_code, sip_disposition, sip_term_status
+     - **PDD**: progress_msec, progress_media_msec, early_media_ms
 
 **6. FreeSWITCH Configuration Templates:**
 
@@ -289,9 +274,6 @@ Your task is to take the following comprehensive technical blueprint for a profe
   "duration": $\{duration},
   "billsec": $\{billsec},
   "fs_hangup_cause": "$\{hangup_cause}",
-  "sip_code": "$\{sip_hangup_cause}",
-  "sip_disposition": "$\{sip_hangup_disposition}",
-  "sip_term_status": "$\{sip_term_status}",
   "caller_id_name": "$\{caller_id_name}",
   "caller_id_number": "$\{caller_id_number}",
   "destination_number": "$\{destination_number}",
@@ -308,47 +290,93 @@ Your task is to take the following comprehensive technical blueprint for a profe
   "amd_confidence": "$\{AMD_CONFIDENCE}",
   "amd_latency_ms": "$\{AMD_LATENCY_MS}",
 
-  "progress_msec": "$\{progress_msec}",
-  "progress_media_msec": "$\{progress_media_msec}",
-  "early_media_ms": "$\{early_media_ms}",
-
   "network_addr": "$\{network_addr}",
   "read_codec": "$\{read_codec}",
-  "write_codec": "$\{write_codec}"
+  "write_codec": "$\{write_codec}",
+  
+  "sip_code": "$\{sip_hangup_cause}",
+  "sip_disposition": "$\{sip_hangup_disposition}",
+  "sip_term_status": "$\{sip_term_status}",
+  "progress_msec": "$\{progress_msec}",
+  "progress_media_msec": "$\{progress_media_msec}",
+  "early_media_ms": "$\{early_media_ms}"
 }
     ]]\></template>
   </templates>
 </configuration>
 \`\`\`
 
-**7. Backend: Core Technical Services**
+**7. Go-Live & Production Checklist (P0)**
+   **1. Database Setup:**
+     - Run \`psql -d dialer -f sql/schema.sql\` to create tables.
+     - Run \`psql -d dialer -f sql/sample_data.sql\` for initial data.
+     - Load the full NANPA area code list into \`state_area_codes\`.
+     - Ensure \`leads\` table phones are E.164 and timezones are populated.
+   **2. FreeSWITCH ↔ Backend Connection:**
+     - Deploy provided XML files to your FreeSWITCH configuration directory.
+     - Update \`event_socket.conf.xml\` with a strong password and correct ACL.
+     - Update \`json_cdr.conf.xml\` with your backend's \`/cdr\` URL and API token.
+     - Verify module loading and ESL connection: \`reloadxml\`, \`load mod_... \`, \`telnet\`.
+   **3. Backend (Node.js) Deployment:**
+     - Create and configure the \`.env\` file with PostgreSQL, ESL, and API token credentials.
+     - Install dependencies with \`npm i\`.
+     - Start the server with \`npm run dev\`.
+   **4. Orchestrator Configuration:**
+     - Set compliance variables in \`.env\`: \`MAX_CALLS_PER_LEAD_PER_DAY=8\`, \`MAX_CALLS_PER_DID_PER_DAY=300\`.
+     - Test campaign lifecycle by sending a POST request to \`/api/campaigns/:id/start\`.
 
-**A) ESL Aggregator (P0):**
-   - **Subscription:** \`CHANNEL_CREATE/ANSWER/HANGUP\`, \`CUSTOM callcenter::info\`.
-   - **Logic:** Aggregates metrics in-memory or in Redis across 5s, 60s, and 5m windows (ASR, CPS, CC, abandonment, AMD split, ACD).
-   - **Output:** Publishes \`kpi.tick\` and \`call.update\` events to the UI via WebSocket.
+**8. End-to-End Acceptance Tests**
+   - **Golden Path:** Create and start a campaign. Verify a \`call.update\` event with "Connected" status appears in the Real-Time Monitor and a CDR with \`billsec > 0\` is created.
+   - **DID by State:** Make calls to numbers in different states (e.g., TX, CA). Check the \`attempts\` table to confirm the correct state-specific Caller ID was used.
+   - **Daily Call Limit:** Simulate 8 calls to the same lead within their timezone. The orchestrator must not originate the 9th call.
+   - **SIP Mix / PDD:** Intentionally generate failed calls (486, 404, 503). Use the operational SQL queries to verify ASR, PDD, and SIP failure codes are correctly reported.
+   - **AMD to Queue Routing:** Set a call's \`AMD_LABEL\` to "HUMAN" and confirm it is correctly routed to the 'sales' queue in \`mod_callcenter\`.
 
-**B) CDR Handler (P0):**
-   - **Endpoint:** Exposes a \`/cdr\` endpoint for \`mod_json_cdr\` to POST to.
-   - **Logic:** Responds with a 2xx status code to acknowledge receipt. If it fails, FreeSWITCH will save the CDR to \`log-dir\`.
-   - **Data to Persist:** \`campaign_id, list_id, lead_id, trunk_id, queue, agent_id, start/answer/end, billsec, sip_hangup_cause, hangup_cause, amd_label/confidence/latency_ms, recording_url\`. Remember to use \`export_vars\` in the originate command.
+**9. Key Operational Metrics (SQL Queries)**
+   **A) Provider Health (Last 15 min):**
+   \`\`\`sql
+    SELECT trunk_id,
+      COUNT(*) FILTER (WHERE raw->>'sip_code'='200')::float/NULLIF(COUNT(*),0) AS asr,
+      percentile_cont(0.5) WITHIN GROUP (ORDER BY
+        COALESCE((raw->>'progress_media_msec')::int,(raw->>'progress_msec')::int)) AS p50_pdd_ms,
+      percentile_cont(0.9) WITHIN GROUP (ORDER BY
+        COALESCE((raw->>'progress_media_msec')::int,(raw->>'progress_msec')::int)) AS p90_pdd_ms,
+      COUNT(*) FILTER (WHERE (raw->>'sip_code')::int BETWEEN 400 AND 499) AS c4xx,
+      COUNT(*) FILTER (WHERE (raw->>'sip_code')::int BETWEEN 500 AND 599) AS c5xx,
+      COUNT(*) FILTER (WHERE raw->>'sip_code'='486') AS busy_486,
+      COUNT(*) FILTER (WHERE raw->>'sip_code'='403') AS forb_403,
+      COUNT(*) FILTER (WHERE raw->>'sip_code'='404') AS notfound_404
+    FROM cdr
+    WHERE received_at >= now() - interval '15 minutes'
+    GROUP BY trunk_id
+    ORDER BY asr ASC;
+   \`\`\`
+   **B) DID Usage (Today):**
+   \`\`\`sql
+    SELECT d.e164, d.state,
+      du.calls_total,
+      (du.calls_total >= d.daily_cap) AS reached_cap,
+      du.calls_total AS calls_today
+    FROM dids d
+    LEFT JOIN did_usage du ON du.did_id=d.id AND du.day=current_date
+    ORDER BY d.state, calls_today DESC;
+   \`\`\`
+   **C) Top SIP Mix by Trunk (Today):**
+   \`\`\`sql
+    SELECT trunk_id, raw->>'sip_code' AS code, COUNT(*) as n
+    FROM cdr
+    WHERE received_at::date = current_date
+    GROUP BY trunk_id, code
+    ORDER BY trunk_id, n DESC;
+   \`\`\`
 
-**C) AMD/IA Service (P1):**
-   - **Input:** Receives audio via WebSocket from \`mod_audio_fork\` (PCM L16 @ 16kHz).
-   - **Output:** Returns a classification and sets channel variables: \`AMD_LABEL\`, \`AMD_CONFIDENCE\`, \`AMD_LATENCY_MS\`.
-   - **Routing Rules:** \`HUMAN\` -> \`callcenter\`; \`VOICEMAIL\` -> trigger beep detection (\`avmd\`) and drop message; \`FAX/SIT\` -> hang up and flag the provider/list for review.
-
-**D) Predictive Predictor (P1):**
-   - **Algorithm:** A pacing loop that balances occupancy and AHT goals, constrained by CPS limits and the 60s abandonment rate, and adjusted by the 5m ASR.
-   - **Distribution:** Distributes calls across trunks based on configured weights and CPS capacity.
-
-**8. SIP Troubleshooting and Diagnostics**
+**10. SIP Troubleshooting and Diagnostics**
    - **Key SIP Codes:** Monitor \`403\` (Forbidden/CLI issue), \`404\` (Bad list), \`486\` (Busy), \`488\` (Codec issue), \`503/504\` (Carrier failure).
    - **Quick Actions:** For \`488\`, force codecs with \`<action application="set" data="absolute_codec_string=PCMU,PCMA"/>\`. For \`5xx\` errors, trigger failover logic and reduce pacing. For high \`404\`, clean the calling list.
    - **Full Capture:** For deep analysis, use \`sofia global siptrace on\` for CLI-based tracing or enable \`sofia global capture on\` to send traffic to a HEP/HOMER collector for full visualization.
    - **Carrier Escalation:** To report issues, provide Call-IDs, \`Reason\` headers (Q.850 cause), PDD/ASR metrics, and HEP captures.
 
-**9. Seguridad y escalado (recomendado)**
+**11. Seguridad y escalado (recomendado)**
    - ESL en 127.0.0.1 o detrás de proxy + ACL + password fuerte.
    - TLS para WSS/WebRTC; rotación de tokens/API keys.
    - Cola de jobs (Redis/Rabbit) para originate masivo; idempotencia por lead_id.
