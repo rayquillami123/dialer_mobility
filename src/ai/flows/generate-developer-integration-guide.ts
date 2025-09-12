@@ -156,7 +156,7 @@ Your task is to take the following comprehensive technical blueprint for a profe
       <condition field="destination_number" expression="^(.+)$">
         <!-- Variables de campaña/troncal/lead llegan exportadas desde originate -->
         <!-- 1) Inicia grabación opcional -->
-        <!-- <action application="record_session" data="\${recordings_dir}/\${uuid}.wav"/> -->
+        <!-- <action application="record_session" data="\${'\\$'}{recordings_dir}/\${uuid}.wav"/> -->
 
         <!-- 2) Fork de audio a tu motor AMD/IA (L16/16k) -->
         <action application="uuid_audio_fork" data="\${uuid} start ws://amd-svc:8080 {mix=true,rate=16000,channels=1,format=L16}"/>
@@ -164,6 +164,7 @@ Your task is to take the following comprehensive technical blueprint for a profe
         <!-- 3) Tiempo máximo de ring -->
         <action application="set" data="ringback=\${us-ring}"/>
         <action application="set" data="call_timeout=25"/>
+        <action application="set" data="progress_timeout=13"/> 
 
         <!-- 4) Marca hacia el gateway elegido -->
         <action application="bridge" data="sofia/gateway/\${X_TRUNK}/\${destination_number}"/>
@@ -187,6 +188,22 @@ Your task is to take the following comprehensive technical blueprint for a profe
      - sip_hangup_cause, hangup_cause, progress_ms, early_media_ms
      - campaign_id, list_id, lead_id, trunk_id, agent_id, queue
      - amd_label, amd_confidence, disposition, recording_url
+   - **Example Reporting Query (SIP Mix by Trunk):**
+     \`\`\`sql
+      SELECT trunk_id,
+        COUNT(*) FILTER (WHERE sip_code='200')::float / NULLIF(COUNT(*),0) AS asr,
+        percentile_cont(0.5) WITHIN GROUP (ORDER BY COALESCE(progress_media_msec, progress_msec)) AS p50_pdd_ms,
+        percentile_cont(0.9) WITHIN GROUP (ORDER BY COALESCE(progress_media_msec, progress_msec)) AS p90_pdd_ms,
+        COUNT(*) FILTER (WHERE sip_code BETWEEN '400' AND '499') AS c4xx,
+        COUNT(*) FILTER (WHERE sip_code BETWEEN '500' AND '599') AS c5xx,
+        COUNT(*) FILTER (WHERE sip_code='486') AS busy_486,
+        COUNT(*) FILTER (WHERE sip_code='403') AS forb_403,
+        COUNT(*) FILTER (WHERE sip_code='404') AS notfound_404
+      FROM cdr
+      WHERE received_at >= now() - interval '15 minutes'
+      GROUP BY trunk_id
+      ORDER BY asr ASC;
+     \`\`\`
 
 **6. FreeSWITCH Configuration Templates:**
 
@@ -271,8 +288,10 @@ Your task is to take the following comprehensive technical blueprint for a profe
   "end_stamp": "$\{end_stamp}",
   "duration": $\{duration},
   "billsec": $\{billsec},
-  "hangup_cause": "$\{hangup_cause}",
-  "sip_hangup_cause": "$\{sip_hangup_cause}",
+  "fs_hangup_cause": "$\{hangup_cause}",
+  "sip_code": "$\{sip_hangup_cause}",
+  "sip_disposition": "$\{sip_hangup_disposition}",
+  "sip_term_status": "$\{sip_term_status}",
   "caller_id_name": "$\{caller_id_name}",
   "caller_id_number": "$\{caller_id_number}",
   "destination_number": "$\{destination_number}",
@@ -289,7 +308,8 @@ Your task is to take the following comprehensive technical blueprint for a profe
   "amd_confidence": "$\{AMD_CONFIDENCE}",
   "amd_latency_ms": "$\{AMD_LATENCY_MS}",
 
-  "progress_ms": "$\{progress_ms}",
+  "progress_msec": "$\{progress_msec}",
+  "progress_media_msec": "$\{progress_media_msec}",
   "early_media_ms": "$\{early_media_ms}",
 
   "network_addr": "$\{network_addr}",
@@ -322,7 +342,13 @@ Your task is to take the following comprehensive technical blueprint for a profe
    - **Algorithm:** A pacing loop that balances occupancy and AHT goals, constrained by CPS limits and the 60s abandonment rate, and adjusted by the 5m ASR.
    - **Distribution:** Distributes calls across trunks based on configured weights and CPS capacity.
 
-**8. Seguridad y escalado (recomendado)**
+**8. SIP Troubleshooting and Diagnostics**
+   - **Key SIP Codes:** Monitor \`403\` (Forbidden/CLI issue), \`404\` (Bad list), \`486\` (Busy), \`488\` (Codec issue), \`503/504\` (Carrier failure).
+   - **Quick Actions:** For \`488\`, force codecs with \`<action application="set" data="absolute_codec_string=PCMU,PCMA"/>\`. For \`5xx\` errors, trigger failover logic and reduce pacing. For high \`404\`, clean the calling list.
+   - **Full Capture:** For deep analysis, use \`sofia global siptrace on\` for CLI-based tracing or enable \`sofia global capture on\` to send traffic to a HEP/HOMER collector for full visualization.
+   - **Carrier Escalation:** To report issues, provide Call-IDs, \`Reason\` headers (Q.850 cause), PDD/ASR metrics, and HEP captures.
+
+**9. Seguridad y escalado (recomendado)**
    - ESL en 127.0.0.1 o detrás de proxy + ACL + password fuerte.
    - TLS para WSS/WebRTC; rotación de tokens/API keys.
    - Cola de jobs (Redis/Rabbit) para originate masivo; idempotencia por lead_id.
@@ -339,7 +365,7 @@ Your task is to take the following comprehensive technical blueprint for a profe
 
 const generateDeveloperIntegrationGuideFlow = ai.defineFlow(
   {
-    name: 'generateDeveloperIntegrationGuideFlow',
+    name: 'generateDeveloperIntegration-integration-guideFlow',
     outputSchema: GenerateDeveloperIntegrationGuideOutputSchema,
   },
   async () => {
@@ -347,5 +373,3 @@ const generateDeveloperIntegrationGuideFlow = ai.defineFlow(
     return output!;
   }
 );
-
-    
