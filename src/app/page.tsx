@@ -21,6 +21,7 @@ import { useDialerStore } from '@/store/dialer';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Checkbox } from '@/components/ui/checkbox';
 import DIDHealth from '@/components/DIDHealth';
+import TopSipByDid from '@/components/TopSipByDid';
 
 /**
  * FRONTEND MVP – DIALER INTELIGENTE (FreeSWITCH backend)
@@ -977,6 +978,7 @@ function TrunksSettings({ trunks, setTrunks }: { trunks: Trunk[]; setTrunks: any
     <div className="space-y-6">
       <ProvidersHealth />
       <DIDHealth />
+      <TopSipByDid />
       <Card className="shadow-sm">
         <CardHeader>
           <CardTitle>Troncales Configurados</CardTitle>
