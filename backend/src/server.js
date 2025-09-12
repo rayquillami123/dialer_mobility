@@ -4,6 +4,7 @@ import http from 'http';
 import { WebSocketServer } from 'ws';
 import { Pool } from 'pg';
 import 'dotenv/config';
+import { router as campaignsRouter } from './routes/campaigns.js';
 
 const app = express();
 const server = http.createServer(app);
@@ -12,7 +13,7 @@ const wss = new WebSocketServer({ server, path: '/api/realtime' });
 const port = process.env.PORT || 9003;
 
 // PostgreSQL client setup
-const pool = new Pool({
+export const db = new Pool({
   user: process.env.PGUSER,
   host: process.env.PGHOST,
   database: process.env.PGDATABASE,
@@ -21,6 +22,10 @@ const pool = new Pool({
 });
 
 app.use(express.json());
+
+// API Routes
+app.use('/api/campaigns', campaignsRouter);
+
 
 // Simple root endpoint
 app.get('/', (req, res) => {
@@ -34,7 +39,7 @@ app.post('/cdr', async (req, res) => {
     // Note: This is a simplified insert. You'll need to map all fields from the
     // json_cdr template to your database columns.
     const cdr = req.body;
-    await pool.query(
+    await db.query(
       `INSERT INTO cdr (
         uuid, call_id, direction, start_stamp, answer_stamp, end_stamp, duration, billsec, hangup_cause,
         campaign_id, list_id, lead_id, trunk_id, queue, agent_id, amd_label, amd_confidence, recording_url
