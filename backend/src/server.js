@@ -46,6 +46,10 @@ const server = app.listen(process.env.PORT || 9003, ()=>{
 
 // Upgrade to WS
 server.on('upgrade', (req, socket, head)=>{
+  if (req.url !== '/ws') {
+    socket.destroy();
+    return;
+  }
   // Optionally validate Origin
   wss.handleUpgrade(req, socket, head, (ws) => {
     wss.emit('connection', ws, req);
