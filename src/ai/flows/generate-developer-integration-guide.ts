@@ -152,13 +152,32 @@ Your task is to take the following comprehensive technical blueprint for a profe
 
    - **Routing based on AMD result (set by external service):**
      \`\`\`xml
-     <condition field="\\\${AMD_LABEL}" expression="^HUMAN$">
-       <action application="set" data="cc_export_vars=X_CAMPAIGN,X_LEAD,X_TRUNK"/>
-       <action application="callcenter" data="sales"/>
-     </condition>
-     <condition field="\\\${AMD_LABEL}" expression="^(VOICEMAIL|FAX|SIT|UNKNOWN)$">
-       <action application="hangup" data="NORMAL_CLEARING"/>
-     </condition>
+     <extension name="dialer-outbound">
+      <condition field="destination_number" expression="^(.+)$">
+        <!-- Variables de campaña/troncal/lead llegan exportadas desde originate -->
+        <!-- 1) Inicia grabación opcional -->
+        <!-- <action application="record_session" data="\\$${recordings_dir}/${uuid}.wav"/> -->
+
+        <!-- 2) Fork de audio a tu motor AMD/IA (L16/16k) -->
+        <action application="uuid_audio_fork" data="${uuid} start ws://amd-svc:8080 {mix=true,rate=16000,channels=1,format=L16}"/>
+
+        <!-- 3) Tiempo máximo de ring -->
+        <action application="set" data="ringback=${us-ring}"/>
+        <action application="set" data="call_timeout=25"/>
+
+        <!-- 4) Marca hacia el gateway elegido -->
+        <action application="bridge" data="sofia/gateway/${X_TRUNK}/${destination_number}"/>
+
+        <!-- 5) Routing post-bridge según AMD -->
+        <condition field="${AMD_LABEL}" expression="^HUMAN$">
+          <action application="set" data="cc_export_vars=X_CAMPAIGN,X_LIST,X_LEAD,X_TRUNK"/>
+          <action application="callcenter" data="sales"/>
+        </condition>
+        <condition field="${AMD_LABEL}" expression="^(VOICEMAIL|FAX|SIT|UNKNOWN)$">
+          <action application="hangup" data="NORMAL_CLEARING"/>
+        </condition>
+      </condition>
+    </extension>
      \`\`\`
 
 **5. CDR & Reporting Schema (PostgreSQL):**
