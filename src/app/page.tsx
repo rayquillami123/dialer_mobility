@@ -197,9 +197,10 @@ export default function DialerInteligenteApp() {
   
   // Connect to the WebSocket, assuming it's served on the same host.
   // In a real app, you'd get this from an environment variable.
-  const wsUrl = typeof window !== 'undefined' 
-    ? `ws://${window.location.hostname}:9003/ws`
+  const wsUrl = typeof window !== 'undefined'
+    ? `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.hostname}:9003/ws`
     : '';
+
   useDialerWS(wsUrl);
 
   const allCalls = useDialerStore((s) => Object.values(s.calls));
