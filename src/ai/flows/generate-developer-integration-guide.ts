@@ -30,9 +30,9 @@ Your task is to take the following comprehensive technical blueprint and market 
     *   **Agentless / Outbound IVR ("Press-1"):** Broadcasts messages with DTMF options for surveys, reminders, etc.
 
 *   **Compliance (Key Regulations):**
-    *   **USA (TSR/FCC):** Enforces a "Safe Harbor" for predictive dialers if the abandon rate is **≤ 3% per campaign over a 30-day period**. An abandoned call must play an informative message, and unanswered calls must ring for at least 15 seconds or 4 rings.
+    *   **USA (TSR/FCC):** Enforces a "Safe Harbor" for predictive dialers if the abandon rate is **≤ 3% per campaign over a 30-day period**. An abandoned call must play an informative message, and unanswered calls must ring for at least 15 seconds or 4 rings. A call is considered abandoned if a live agent is not connected within 2 seconds of the recipient's completed greeting.
     *   **UK (Ofcom):** Similar guidelines, historically focusing on a 3% abandon rate per 24-hour period per campaign. Emphasizes preventing "nuisance calls."
-    *   **Practical Implication:** The system *must* have active pacing control, per-campaign abandon rate tracking, and automated abandonment messages to be compliant.
+    *   **Practical Implication:** The system *must* have active pacing control, per-campaign abandon rate tracking, automated abandonment messages, and dialing window enforcement to be compliant.
 
 *   **Answer Machine Detection (AMD/CPA):**
     *   **Challenge:** No AMD is 100% accurate. Real-world accuracy is often 75-90% with a trade-off in latency (can take 4-5 seconds).
@@ -167,6 +167,7 @@ Your task is to take the following comprehensive technical blueprint and market 
      - Run \`psql -d dialer -f sql/schema.sql\` & \`sql/sample_data.sql\`.
      - Load full NANPA area code list into \`state_area_codes\`.
      - Ensure leads have E.164 numbers and correct timezones.
+     - Create and populate the \`call_windows\` table for dialing window compliance.
    **2. FreeSWITCH ↔ Backend Connection:**
      - Deploy XML files.
      - Update passwords and URLs in \`event_socket.conf.xml\` and \`json_cdr.conf.xml\`.
@@ -174,16 +175,22 @@ Your task is to take the following comprehensive technical blueprint and market 
    **3. Backend (Node.js) Deployment:**
      - Configure \`.env\` with PostgreSQL, ESL, and API token credentials.
      - Run \`npm i\` and \`npm run dev\`.
+     - Implement the 2-second "Safe Harbor" timer for abandoned calls.
    **4. Orchestrator Configuration:**
      - Set compliance variables in \`.env\`: \`MAX_CALLS_PER_LEAD_PER_DAY=8\`, \`MAX_CALLS_PER_DID_PER_DAY=300\`.
      - Test campaign start via API: \`POST /api/campaigns/:id/start\`.
+     - Integrate \`computeDialRate()\` and trunk failover logic into the main loop.
+   **5. CDR and Reporting:**
+     - Verify that the extended JSON CDR fields are being correctly populated in the database.
+     - Confirm the \`/api/providers/health\` and \`/api/dids/health\` endpoints are working.
 
 **8. End-to-End Acceptance Tests**
    - **Golden Path:** Start campaign, see a "Connected" call in the UI, and verify a CDR with \`billsec > 0\` is created.
-   - **DID by State:** Call numbers in different states (TX, CA) and confirm the correct state-specific Caller ID was used via the \`attempts\` table.
-   - **Daily Call Limit:** Simulate 8 calls to one lead. The 9th call must not be originated.
+   - **DID by State:** Call numbers in diferentes states (TX, CA) and confirm the correct state-specific Caller ID was used via the \`attempts\` table.
+   - **Dialing Window:** Schedule a dialing window and confirm the orchestrator does not place calls outside of it.
+   - **Safe Harbor Abandon:** Manually hold a call without connecting an agent and verify it's abandoned with the correct message after 2 seconds.
    - **SIP Mix / PDD:** Generate failed calls (486, 404, 503) and verify the SQL queries for provider health report them correctly.
-   - **AMD to Queue Routing:** Ensure a call with \`AMD_LABEL=HUMAN\` is routed to the \`sales\` queue.
+   - **Trunk Failover:** Simulate a high 5xx error rate on a trunk and verify the orchestrator reduces its weight.
 
 **9. Key Operational Metrics (SQL Queries)**
    **A) Provider Health (Last 15 min):**

@@ -9,7 +9,7 @@ import { router as cdr } from './routes/cdr.js';
 import { router as reports } from './routes/reports.js';
 import { router as providers } from './routes/providers.js';
 import { router as dids } from './routes/dids.js';
-import { eslInit } from './services/esl.js';
+import { eslInit, getEslSocket } from './services/esl.js';
 
 const app = express();
 app.use(cors());
@@ -61,13 +61,41 @@ server.on('upgrade', (req, socket, head)=>{
   });
 });
 
+const activeCallTimers = new Map();
+
 // ESL aggregator → WS
 eslInit({ onEvent: (ev)=> {
-  // Map to UI contract (very simplificado)
+  const esl = getEslSocket();
+  if (!esl) return;
+
+  // Map to UI contract (muy simplificado)
   if (ev['Event-Name']==='CHANNEL_ANSWER'){
-    broadcast({type:'call.update', uuid:ev['Unique-ID'], state:'Connected', ts:Date.now(), number: ev['Caller-Destination-Number'] });
+    const uuid = ev['Unique-ID'];
+    broadcast({type:'call.update', uuid, state:'Connected', ts:Date.now(), number: ev['Caller-Destination-Number'] });
+    
+    // Inicia timer de "Safe Harbor": si en 2s no hay bridge, es abandono.
+    const timer = setTimeout(()=> {
+      broadcast({ type:'call.update', uuid, state:'AbandonedSafeHarbor', ts:Date.now() });
+      esl.api(`uuid_broadcast ${uuid} playback::ivr/you_will_be_called_again.wav both`);
+      setTimeout(()=> esl.api(`uuid_kill ${uuid}`), 1500); // dar tiempo al playback
+      activeCallTimers.delete(uuid);
+    }, 2000);
+    activeCallTimers.set(uuid, timer);
   }
-  if (ev['Event-Name']==='CHANNEL_HANGUP_COMPLETE'){
-    broadcast({type:'call.update', uuid:ev['Unique-ID'], state:'Hangup', ts:Date.now(), billsec: Number(ev['billsec']||0) });
+  else if (ev['Event-Name']==='CHANNEL_BRIDGE') {
+    // La llamada se conectó a un agente, cancela el timer de abandono
+    const uuid = ev['Unique-ID'];
+    if (activeCallTimers.has(uuid)) {
+      clearTimeout(activeCallTimers.get(uuid));
+      activeCallTimers.delete(uuid);
+    }
+  }
+  else if (ev['Event-Name']==='CHANNEL_HANGUP_COMPLETE'){
+    const uuid = ev['Unique-ID'];
+    if (activeCallTimers.has(uuid)) {
+      clearTimeout(activeCallTimers.get(uuid));
+      activeCallTimers.delete(uuid);
+    }
+    broadcast({type:'call.update', uuid, state:'Hangup', ts:Date.now(), billsec: Number(ev['variable_billsec']||0) });
   }
 }});
