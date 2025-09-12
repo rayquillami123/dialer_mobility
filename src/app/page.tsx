@@ -1,4 +1,5 @@
 
+
 'use client';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
@@ -31,6 +32,7 @@ import DashboardAutoProtectSummary from '@/components/DashboardAutoProtectSummar
 import GlobalAlertBar from '@/components/GlobalAlertBar';
 import RequireRole from '@/components/RequireRole';
 import { useAuth } from '@/hooks/useAuth';
+import UsersPage from './admin/users/page';
 
 /**
  * FRONTEND MVP – DIALER INTELIGENTE (FreeSWITCH backend)
@@ -189,6 +191,7 @@ const sections = [
   { id: 'integrations', label: 'Integraciones', icon: Bot },
   { id: 'audit', label: 'Auditoría', icon: Settings },
   { id: 'reports', label: 'Reportes', icon: FileDown },
+  { id: 'users', label: 'Usuarios', icon: User },
   { id: 'settings', label: 'Ajustes', icon: Settings },
 ] as const;
 
@@ -210,13 +213,18 @@ function DialerInteligenteMain() {
   
   const { logout } = useAuth();
   
-  // Connect to the WebSocket, assuming it's served on the same host.
-  // In a real app, you'd get this from an environment variable.
-  const wsUrl = typeof window !== 'undefined'
-    ? `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.hostname}:9003/ws`
-    : '';
+  const { onKpi, onCall, onAgent, onQueue } = useDialerStore();
 
-  useDialerWS(wsUrl);
+  useDialerWS((data) => {
+    try {
+      if (data.type === 'kpi.tick') onKpi(data);
+      else if (data.type === 'call.update') onCall(data);
+      else if (data.type === 'agent.update') onAgent(data);
+      else if (data.type === 'queue.update') onQueue(data);
+    } catch (error) {
+      console.error('Error processing WebSocket message:', error);
+    }
+  });
 
   const allCalls = useDialerStore((s) => Object.values(s.calls));
 
@@ -263,6 +271,7 @@ function DialerInteligenteMain() {
           {active === 'integrations' && <Integrations/>}
           {active === 'audit' && <AuditLog/>}
           {active === 'reports' && <Reports allCalls={allCalls} campaigns={campaigns}/>}
+          {active === 'users' && <UsersPage />}
           {active === 'settings' && <SettingsPage/>}
         </main>
       </div>

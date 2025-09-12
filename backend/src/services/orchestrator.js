@@ -1,5 +1,7 @@
 
-import { db, ws } from '../server.js';
+
+import { broadcastToTenant } from '../server.js';
+import { db } from '../server.js';
 import { numberToState, pickDidForState, canCallLeadToday } from './did_policy.js';
 import { getEslSocket } from './esl.js';
 import { computeDialRate } from '../lib/predictor.js';
@@ -81,7 +83,7 @@ async function evaluateAutoProtection(campaign){
   autoProtectState.set(id, next);
 
   // Notifica a la UI (opcional)
-  ws.broadcast({
+  broadcastToTenant(campaign.tenant_id, {
     type: 'campaign.autoprotect',
     campaign_id: id,
     pct,

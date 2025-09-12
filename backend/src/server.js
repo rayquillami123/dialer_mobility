@@ -15,6 +15,9 @@ import { eslInit } from './services/esl.js';
 import { router as recordings } from './routes/recordings.js';
 import { router as auth } from './routes/auth.js';
 import { bearerOrApiKey, authenticate } from './mw/authz.js';
+import { router as users } from './routes/users.js';
+import jwt from 'jsonwebtoken';
+import url from 'node:url';
 
 const app = express();
 app.use(cors({
@@ -29,18 +32,19 @@ if (process.env.DOWNLOADS_DIR) {
   app.use('/downloads', express.static(process.env.DOWNLOADS_DIR));
 }
 
+// DB
+export const db = new Pool();
+
 // Auth Bearer simple (excepto /cdr que idealmente aseguras por IP/Nginx)
 app.use(bearerOrApiKey);
 app.use(authenticate(db));
 
 
-// DB
-export const db = new Pool();
-
 // Rutas
 app.get('/health', (_req,res)=>res.json({ ok:true, ts:Date.now() }));
 app.use('/api/auth', auth);
 app.use('/api/campaigns', campaigns);
+app.use('/api/users', users);
 app.use('/cdr', cdr);
 app.use('/api/reports', reports);
 app.use('/api/providers', providers);
@@ -49,25 +53,57 @@ app.use('/api/recordings', recordings);
 
 
 // WS
-const wss = new WebSocketServer({ noServer: true });
-function broadcast(obj){
-  const s = JSON.stringify(obj);
-  for (const c of wss.clients) if (c.readyState === 1) c.send(s);
-}
-export const ws = { broadcast };
-
 const server = app.listen(process.env.PORT || 9003, ()=>{
   console.log('API listening on', server.address());
 });
-server.on('upgrade', (req, socket, head)=>{
-    if (req.url !== '/ws') {
-        socket.destroy();
-        return;
-    }
-  wss.handleUpgrade(req, socket, head, (ws) => {
-    wss.emit('connection', ws, req);
+
+export const wss = new WebSocketServer({ server, path: '/ws' });
+const socketsByTenant = new Map(); // tenant_id -> Set<WebSocket>
+
+function addSocket(tenantId, ws) {
+  if (!socketsByTenant.has(tenantId)) socketsByTenant.set(tenantId, new Set());
+  socketsByTenant.get(tenantId).add(ws);
+  ws.on('close', () => {
+    socketsByTenant.get(tenantId)?.delete(ws);
   });
+}
+
+export function broadcastToTenant(tenantId, payload) {
+  const msg = JSON.stringify(payload);
+  const set = socketsByTenant.get(tenantId);
+  if (!set) return;
+  for (const ws of set) {
+    if (ws.readyState === ws.OPEN) ws.send(msg);
+  }
+}
+
+export function broadcastAll(payload) {
+  const msg = JSON.stringify(payload);
+  for (const set of socketsByTenant.values()) {
+    for (const ws of set) if (ws.readyState === ws.OPEN) ws.send(msg);
+  }
+}
+
+wss.on('connection', (ws, req) => {
+  try {
+    const u = url.parse(req.url, true);
+    let token = u.query.token;
+    if (!token && req.headers['sec-websocket-protocol']) {
+      const sp = String(req.headers['sec-websocket-protocol']).split(',').map(s => s.trim());
+      const b = sp.find(s => s && s !== 'json');
+      if (b) token = b;
+    }
+    if (!token) { ws.close(4001, 'missing token'); return; }
+    const payload = jwt.verify(String(token), process.env.JWT_ACCESS_SECRET || 'dev');
+    ws.user = { id: Number(payload.sub), tenant_id: Number(payload.tenant_id), roles: payload.roles || [] };
+    addSocket(ws.user.tenant_id, ws);
+
+    ws.send(JSON.stringify({ type: 'ws.hello', ts: Date.now(), tenant_id: ws.user.tenant_id }));
+  } catch (e) {
+    try { ws.close(4003, 'unauthorized'); } catch {}
+  }
 });
+
 
 // Timers Safe Harbor (uuid -> timeout)
 const activeCallTimers = new Map();
@@ -83,33 +119,50 @@ const esl = eslInit({ onEvent: (ev)=> {
     const ms = Number(process.env.SAFE_HARBOR_MS || 2000);
     const t = setTimeout(async ()=>{
       try {
-        ws.broadcast({ type:'call.update', uuid, state:'AbandonedSafeHarbor', ts:Date.now() });
-        // Marcar la variable para que el CDR refleje el abandono
+        const campaignId = ev['variable_X_CAMPAIGN'];
+        const campaign = (await db.query('SELECT tenant_id FROM campaigns WHERE id = $1', [campaignId])).rows[0];
+        if (campaign) {
+          broadcastToTenant(campaign.tenant_id, { type:'call.update', uuid, state:'AbandonedSafeHarbor', ts:Date.now() });
+        }
         await esl.api(`uuid_setvar ${uuid} safe_harbor true`);
-        // Reproduce mensaje y corta (ajusta la ruta del prompt según tus audios)
         await esl.api(`uuid_broadcast ${uuid} playback:ivr/ivr-you_will_be_called_again.wav both`);
         setTimeout(()=> esl.api(`uuid_kill ${uuid}`), 1500);
       } catch {}
       activeCallTimers.delete(uuid);
     }, ms);
     activeCallTimers.set(uuid, t);
-    ws.broadcast({ type:'call.update', uuid, state:'Connected', ts:Date.now(), number: ev['Caller-Destination-Number'] });
+
+    const campaignId = ev['variable_X_CAMPAIGN'];
+    db.query('SELECT tenant_id FROM campaigns WHERE id = $1', [campaignId]).then(res => {
+      if (res.rows[0]) {
+        broadcastToTenant(res.rows[0].tenant_id, { type:'call.update', uuid, state:'Connected', ts:Date.now(), number: ev['Caller-Destination-Number'] });
+      }
+    });
   }
 
   if (name === 'CHANNEL_BRIDGE') {
-    // Se asignó a agente → cancelar Safe Harbor y empezar a grabar
     const t = activeCallTimers.get(uuid);
     if (t) { clearTimeout(t); activeCallTimers.delete(uuid); }
-    ws.broadcast({ type:'call.update', uuid, state:'Bridged', ts:Date.now() });
+    
+    const campaignId = ev['variable_X_CAMPAIGN'];
+    db.query('SELECT tenant_id FROM campaigns WHERE id = $1', [campaignId]).then(res => {
+      if (res.rows[0]) {
+        broadcastToTenant(res.rows[0].tenant_id, { type:'call.update', uuid, state:'Bridged', ts:Date.now() });
+      }
+    });
 
     const recDir = process.env.REC_DIR || '/var/recordings';
     const ts = new Date().toISOString().replace(/[:.]/g,'-');
     const recFile = `${recDir}/${ts}_${uuid}.wav`;
     esl.api(`uuid_setvar ${uuid} recording_path '${recFile}'`);
     esl.api(`uuid_record ${uuid} start ${recFile}`);
-    ws.broadcast({ type:'call.update', uuid, recording:recFile });
+    
+    db.query('SELECT tenant_id FROM campaigns WHERE id = $1', [campaignId]).then(res => {
+      if (res.rows[0]) {
+        broadcastToTenant(res.rows[0].tenant_id, { type:'call.update', uuid, recording:recFile });
+      }
+    });
   } else if (name === 'CHANNEL_EXECUTE_COMPLETE' && ev['Application'] === 'transfer') {
-    // La llamada se conectó a la PBX, cancela el timer de abandono
     if (activeCallTimers.has(uuid)) {
       clearTimeout(activeCallTimers.get(uuid));
       activeCallTimers.delete(uuid);
@@ -117,11 +170,16 @@ const esl = eslInit({ onEvent: (ev)=> {
   }
 
   if (name === 'CHANNEL_HANGUP_COMPLETE') {
-    // Limpieza de timers y detener grabación
     const t = activeCallTimers.get(uuid);
     if (t) { clearTimeout(t); activeCallTimers.delete(uuid); }
     esl.api(`uuid_record ${uuid} stop`);
-    ws.broadcast({ type:'call.update', uuid, state:'Hangup', ts:Date.now(), billsec: Number(ev['variable_billsec']||0) });
+    
+    const campaignId = ev['variable_X_CAMPAIGN'];
+    db.query('SELECT tenant_id FROM campaigns WHERE id = $1', [campaignId]).then(res => {
+      if (res.rows[0]) {
+        broadcastToTenant(res.rows[0].tenant_id, { type:'call.update', uuid, state:'Hangup', ts:Date.now(), billsec: Number(ev['variable_billsec']||0) });
+      }
+    });
   }
 }});
 
