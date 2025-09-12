@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Switch } from '@/components/ui/switch';
-import { Download, PhoneCall, Play, Plus, Settings, Upload, User, Activity, Database, Factory, PhoneOutgoing, PhoneOff, FileDown, Bot, Code, Volume2, HardDrive } from 'lucide-react';
+import { Download, PhoneCall, Play, Plus, Settings, Upload, User, Activity, Database, Factory, PhoneOutgoing, PhoneOff, FileDown, Bot, Code, Volume2, HardDrive, X } from 'lucide-react';
 import { generateIntegrationNotes } from '@/ai/flows/generate-integration-notes';
 import { AmiAriNotesForm, Trunk } from '@/lib/types';
 import { suggestAMIARIConnectionNotes } from '@/ai/flows/suggest-ami-ari-connection-notes';
@@ -18,6 +18,8 @@ import { generateDeveloperIntegrationGuide } from '@/ai/flows/generate-developer
 import { generateAudioFromText } from '@/ai/flows/generate-audio-from-text';
 import { useDialerWS } from '@/hooks/useDialerWS';
 import { useDialerStore } from '@/store/dialer';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Checkbox } from '@/components/ui/checkbox';
 
 /**
  * FRONTEND MVP – DIALER INTELIGENTE (FreeSWITCH backend)
@@ -57,8 +59,12 @@ interface Campaign {
   id: string;
   name: string;
   type: CampaignType;
-  listId?: string;
-  trunkId?: string;
+  listIds: string[];
+  trunkPolicy?: {
+    weights: Record<string, number>;
+    caps: Record<string, number>;
+  };
+  scheduleId?: string;
   callerIdStrategy?: 'Static' | 'ByState' | 'PoolRotation';
   callerIdValue?: string; // si Static
   pacingRatio?: number; // p.ej. 2.0
@@ -121,6 +127,12 @@ interface LiveCall {
   billsec?: number;
   ts: number;
 }
+interface Schedule {
+  id: string;
+  name: string;
+  details: string;
+}
+
 
 // -------------------------- Utilidades --------------------------
 
@@ -174,13 +186,19 @@ export default function DialerInteligenteApp() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [lists, setLists] = useState<LeadList[]>([]);
   const [trunks, setTrunks] = useState<Trunk[]>([{
-    id: uid(), name: 'US-CLI-MAIN', host: 'sip.provider.net', codecs: 'ulaw,alaw', cliRoute: 'CLI', maxCPS: 20, enabled: true,
+    id: 'gw_main', name: 'US-CLI-MAIN', host: 'sip.provider.net', codecs: 'ulaw,alaw', cliRoute: 'CLI', maxCPS: 20, enabled: true,
+  },{
+    id: 'gw_backup', name: 'US-CLI-BACKUP', host: 'sip.backup.net', codecs: 'ulaw,alaw', cliRoute: 'CLI', maxCPS: 10, enabled: true,
   }]);
+  const [schedules, setSchedules] = useState<Schedule[]>([
+    { id: '1', name: 'Horario Laboral (9am-8pm ET)', details: 'L-V, 9am-8pm en zona horaria del Este' },
+    { id: '2', name: 'Fin de Semana (10am-4pm PT)', details: 'S-D, 10am-4pm en zona horaria del Pacífico' },
+  ]);
   
   // Connect to the WebSocket, assuming it's served on the same host.
   // In a real app, you'd get this from an environment variable.
   const wsUrl = typeof window !== 'undefined' 
-    ? `${window.location.protocol.replace('http', 'ws')}//${window.location.host.replace(/:\d+$/, ':9003')}/ws`
+    ? `ws://${window.location.hostname}:9003/ws`
     : '';
   useDialerWS(wsUrl);
 
@@ -214,11 +232,11 @@ export default function DialerInteligenteApp() {
 
         <main className="lg:col-span-9 xl:col-span-10">
           {active === 'dashboard' && <Dashboard />} 
-          {active === 'campaigns' && <Campaigns campaigns={campaigns} setCampaigns={setCampaigns} lists={lists} trunks={trunks}/>} 
+          {active === 'campaigns' && <Campaigns campaigns={campaigns} setCampaigns={setCampaigns} lists={lists} trunks={trunks} schedules={schedules}/>} 
           {active === 'lists' && <Lists lists={lists} setLists={setLists}/>} 
           {active === 'realtime' && <Realtime />} 
           {active === 'dispositions' && <Dispositions/>}
-          {active === 'scheduler' && <Scheduler/>}
+          {active === 'scheduler' && <Scheduler schedules={schedules} setSchedules={setSchedules}/>}
           {active === 'providers' && <TrunksSettings trunks={trunks} setTrunks={setTrunks}/>}
           {active === 'compliance' && <ComplianceCenter/>}
           {active === 'scripts' && <ScriptsDesigner/>}
@@ -286,8 +304,12 @@ function Dashboard() {
 
 // -------------------------- Campañas --------------------------
 
-function Campaigns({ campaigns, setCampaigns, lists, trunks }: { campaigns: Campaign[]; setCampaigns: any; lists: LeadList[]; trunks: Trunk[] }) {
+function Campaigns({ campaigns, setCampaigns, lists, trunks, schedules }: { campaigns: Campaign[]; setCampaigns: any; lists: LeadList[]; trunks: Trunk[], schedules: Schedule[] }) {
   const [showNew, setShowNew] = useState(false);
+  const getListsNames = (listIds: string[]) => {
+    if (!listIds || listIds.length === 0) return '—';
+    return listIds.map(id => lists.find(l => l.id === id)?.name).filter(Boolean).join(', ');
+  }
 
   return (
     <div className="space-y-6">
@@ -307,8 +329,9 @@ function Campaigns({ campaigns, setCampaigns, lists, trunks }: { campaigns: Camp
               <CardDescription>{c.type} · AMD: {c.amdEngine}</CardDescription>
             </CardHeader>
             <CardContent className="text-sm space-y-2">
-              <div><b>Lista:</b> {lists.find(l => l.id === c.listId)?.name ?? '—'}</div>
-              <div><b>Troncal:</b> {c.trunkId ? trunks.find(t => t.id === c.trunkId)?.name : '—'}</div>
+              <div><b>Listas:</b> {getListsNames(c.listIds)}</div>
+              <div><b>Troncales:</b> { c.trunkPolicy?.weights ? Object.keys(c.trunkPolicy.weights).join(', ') : '—' }</div>
+              <div><b>Horario:</b> {schedules.find(s => s.id === c.scheduleId)?.name ?? 'Siempre activo'}</div>
               <div className="flex gap-2 pt-2">
                 <Button size="sm" variant="outline">Pausar</Button>
                 <Button size="sm" variant="outline">Duplicar</Button>
@@ -325,17 +348,67 @@ function Campaigns({ campaigns, setCampaigns, lists, trunks }: { campaigns: Camp
           onSave={(c: Campaign) => { setCampaigns((prev: Campaign[]) => [c, ...prev]); setShowNew(false); }}
           lists={lists}
           trunks={trunks}
+          schedules={schedules}
         />
       )}
     </div>
   );
 }
 
-function NewCampaign({ onClose, onSave, lists, trunks }: { onClose: () => void; onSave: (c: Campaign) => void; lists: LeadList[]; trunks: Trunk[] }) {
+function MultiSelect({ items, selected, onSelectionChange, placeholder }: { items: { id: string; name: string }[], selected: string[], onSelectionChange: (selected: string[]) => void, placeholder: string }) {
+  const [open, setOpen] = useState(false);
+  const selectedItems = items.filter(item => selected.includes(item.id));
+
+  const toggleItem = (itemId: string) => {
+    if (selected.includes(itemId)) {
+      onSelectionChange(selected.filter(id => id !== itemId));
+    } else {
+      onSelectionChange([...selected, itemId]);
+    }
+  };
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          className="w-full justify-between h-auto"
+        >
+          <div className="flex flex-wrap gap-1">
+            {selectedItems.length > 0 ? selectedItems.map(item => (
+              <Badge key={item.id} variant="secondary" className="flex items-center gap-1">
+                {item.name}
+                <button onClick={(e) => { e.stopPropagation(); toggleItem(item.id); }} className="rounded-full hover:bg-slate-300">
+                  <X className="h-3 w-3" />
+                </button>
+              </Badge>
+            )) : placeholder}
+          </div>
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0">
+        <div className="py-2">
+          {items.map(item => (
+            <div key={item.id} className="flex items-center px-4 py-2 hover:bg-slate-100" onClick={() => toggleItem(item.id)}>
+              <Checkbox checked={selected.includes(item.id)} readOnly className="mr-2" />
+              <span>{item.name}</span>
+            </div>
+          ))}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+
+function NewCampaign({ onClose, onSave, lists, trunks, schedules }: { onClose: () => void; onSave: (c: Campaign) => void; lists: LeadList[]; trunks: Trunk[]; schedules: Schedule[] }) {
   const [name, setName] = useState('Campaña sin nombre');
   const [type, setType] = useState<CampaignType>('Predictive');
-  const [listId, setListId] = useState<string | undefined>(lists[0]?.id);
-  const [trunkId, setTrunkId] = useState<string | undefined>(trunks[0]?.id);
+  const [listIds, setListIds] = useState<string[]>([]);
+  const [trunkPolicy, setTrunkPolicy] = useState({ weights: { 'gw_main': 70, 'gw_backup': 30 }, caps: { 'gw_main': 20, 'gw_backup': 10 } });
+  const [scheduleId, setScheduleId] = useState<string | undefined>();
   const [callerIdStrategy, setCallerIdStrategy] = useState<'Static' | 'ByState' | 'PoolRotation'>('PoolRotation');
   const [callerIdValue, setCallerIdValue] = useState('');
   const [pacingRatio, setPacingRatio] = useState(2);
@@ -373,8 +446,9 @@ function NewCampaign({ onClose, onSave, lists, trunks }: { onClose: () => void; 
       id: uid(),
       name,
       type,
-      listId,
-      trunkId,
+      listIds,
+      trunkPolicy,
+      scheduleId,
       callerIdStrategy,
       callerIdValue: callerIdStrategy === 'Static' ? callerIdValue : undefined,
       pacingRatio,
@@ -416,24 +490,56 @@ function NewCampaign({ onClose, onSave, lists, trunks }: { onClose: () => void; 
             </Select>
           </div>
           <div>
-            <Label>Lista</Label>
-            <Select value={listId} onValueChange={(v:any)=>setListId(v)}>
-              <SelectTrigger><SelectValue placeholder="Lista"/></SelectTrigger>
-              <SelectContent>
-                {lists.map(l => <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>)}
-              </SelectContent>
-            </Select>
+            <Label>Listas de Leads</Label>
+            <MultiSelect items={lists} selected={listIds} onSelectionChange={setListIds} placeholder="Seleccionar listas..."/>
           </div>
           <div>
-            <Label>Troncal</Label>
-            <Select value={trunkId} onValueChange={(v:any)=>setTrunkId(v)}>
-              <SelectTrigger><SelectValue placeholder="Troncal"/></SelectTrigger>
+            <Label>Horario</Label>
+            <Select value={scheduleId} onValueChange={(v:any)=>setScheduleId(v)}>
+              <SelectTrigger><SelectValue placeholder="Siempre activo"/></SelectTrigger>
               <SelectContent>
-                {trunks.map(t => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
+                <SelectItem value="none">Siempre activo</SelectItem>
+                {schedules.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
         </div>
+
+        <Card className="border-dashed">
+          <CardHeader>
+            <CardTitle className="text-base">Política de Troncales</CardTitle>
+            <CardDescription>Define la prioridad de uso (peso) y los límites de canales para el desborde y failover.</CardDescription>
+          </CardHeader>
+          <CardContent className="grid md:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
+            <div>
+                <Label>Troncal Principal</Label>
+                <Input value={trunks.find(t => t.id === 'gw_main')?.name} disabled />
+            </div>
+            <div>
+                <Label>Peso Principal (%)</Label>
+                <Input type="number" value={trunkPolicy.weights.gw_main} onChange={e => setTrunkPolicy(p => ({...p, weights: {...p.weights, gw_main: Number(e.target.value)}}))} />
+            </div>
+            <div>
+                <Label>Canales Principal</Label>
+                <Input type="number" value={trunkPolicy.caps.gw_main} onChange={e => setTrunkPolicy(p => ({...p, caps: {...p.caps, gw_main: Number(e.target.value)}}))} />
+            </div>
+            <div></div>
+
+             <div>
+                <Label>Troncal Respaldo</Label>
+                <Input value={trunks.find(t => t.id === 'gw_backup')?.name} disabled />
+            </div>
+            <div>
+                <Label>Peso Respaldo (%)</Label>
+                <Input type="number" value={trunkPolicy.weights.gw_backup} onChange={e => setTrunkPolicy(p => ({...p, weights: {...p.weights, gw_backup: Number(e.target.value)}}))} />
+            </div>
+            <div>
+                <Label>Canales Respaldo</Label>
+                <Input type="number" value={trunkPolicy.caps.gw_backup} onChange={e => setTrunkPolicy(p => ({...p, caps: {...p.caps, gw_backup: Number(e.target.value)}}))} />
+            </div>
+          </CardContent>
+        </Card>
+
 
         <div className="grid md:grid-cols-3 gap-4">
           <div>
@@ -453,7 +559,7 @@ function NewCampaign({ onClose, onSave, lists, trunks }: { onClose: () => void; 
             )}
           </div>
           <div>
-            <Label>Pacing ratio</Label>
+            <Label>Ritmo de marcación (Pacing)</Label>
             <Input type="number" value={pacingRatio} onChange={e=>setPacingRatio(Number(e.target.value))}/>
           </div>
           <div>
@@ -786,14 +892,8 @@ function ProvidersHealth() {
   const [health, setHealth] = useState<Health|null>(null);
 
   useEffect(()=>{
-    // In a real app, you'd get this from an environment variable.
-    const apiUrl = typeof window !== 'undefined' 
-    ? `${window.location.protocol}//${window.location.host.replace(/:\d+$/, ':9003')}`
-    : '';
-
-    fetch(`${apiUrl}/api/providers/health?window=15m`, {
-      // headers: { Authorization: `Bearer ${process.env.NEXT_PUBLIC_API_TOKEN||''}` }
-    }).then(r=>r.json()).then(setHealth).catch((e) => {
+    const apiUrl = 'http://localhost:9003';
+    fetch(`${apiUrl}/api/providers/health?window=15m`).then(r=>r.json()).then(setHealth).catch((e) => {
       console.error("Failed to fetch provider health:", e)
       setHealth(null)
     });
@@ -941,26 +1041,21 @@ function Dispositions() {
 }
 
 // -------------------------- Agendador --------------------------
-function Scheduler() {
+function Scheduler({ schedules, setSchedules }: { schedules: Schedule[], setSchedules: (s: Schedule[]) => void }) {
   return (
     <Card className="shadow-sm">
       <CardHeader>
         <CardTitle>Agendador & Ventanas Horarias</CardTitle>
-        <CardDescription>Define ventanas por timezone y límites de intentos por lead.</CardDescription>
+        <CardDescription>Define cuándo se puede marcar. Estas ventanas se asignan a las campañas.</CardDescription>
       </CardHeader>
-      <CardContent className="grid md:grid-cols-3 gap-4">
-        <div>
-          <Label>Máx intentos/lead</Label>
-          <Input type="number" defaultValue={4}/>
-        </div>
-        <div>
-          <Label>Cooldown (min)</Label>
-          <Input type="number" defaultValue={30}/>
-        </div>
-        <div>
-          <Label>Ventanas (ej. 9:00–20:00 local)</Label>
-          <Input placeholder="09:00-20:00"/>
-        </div>
+      <CardContent className="space-y-4">
+        {schedules.map(s => (
+          <div key={s.id} className="p-3 border rounded-lg">
+            <div className='font-medium'>{s.name}</div>
+            <div className='text-sm text-slate-600'>{s.details}</div>
+          </div>
+        ))}
+        <Button variant="outline" disabled>+ Nueva ventana horaria</Button>
       </CardContent>
     </Card>
   );
