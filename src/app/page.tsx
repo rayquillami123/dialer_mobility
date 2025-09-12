@@ -27,6 +27,7 @@ import AbandonmentReport from '@/components/AbandonmentReport';
 import AbandonmentTrend from '@/components/AbandonmentTrend';
 import DashboardAutoProtect from '@/components/DashboardAutoProtect';
 import DashboardAutoProtectSummary from '@/components/DashboardAutoProtectSummary';
+import GlobalAlertBar from '@/components/GlobalAlertBar';
 
 /**
  * FRONTEND MVP – DIALER INTELIGENTE (FreeSWITCH backend)
@@ -188,8 +189,10 @@ const sections = [
   { id: 'settings', label: 'Ajustes', icon: Settings },
 ] as const;
 
+type SectionId = (typeof sections)[number]['id'];
+
 export default function DialerInteligenteApp() {
-  const [active, setActive] = useState<(typeof sections)[number]['id']>('dashboard');
+  const [active, setActive] = useState<SectionId>('dashboard');
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [lists, setLists] = useState<LeadList[]>([]);
   const [trunks, setTrunks] = useState<Trunk[]>([{
@@ -214,6 +217,7 @@ export default function DialerInteligenteApp() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white text-slate-900">
+      <GlobalAlertBar onNavigate={(section) => setActive(section as SectionId)} />
       <header className="sticky top-0 z-20 border-b bg-white/80 backdrop-blur">
         <div className="mx-auto max-w-7xl px-4 py-3 flex items-center gap-3">
           <div className="font-bold text-xl">Dialer Inteligente</div>
