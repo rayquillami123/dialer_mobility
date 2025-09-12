@@ -2,6 +2,16 @@
 
 Este documento contiene procedimientos estándar para operar, monitorear y responder a incidentes comunes de la plataforma.
 
+## Cierre Ejecutivo: Estado Actual de la Plataforma
+
+Tras un intenso ciclo de desarrollo, la plataforma ha alcanzado un nivel de madurez "enterprise", lista para operación 24/7. Las capacidades clave incluyen:
+
+*   **Motor de Marcación Inteligente**: Equipado con Auto-Protección dinámica, failover de troncales basado en salud y cumplimiento normativo integrado (ventanas de marcación y Safe Harbor).
+*   **Arquitectura SaaS Multi-tenant**: Aislamiento de datos completo por inquilino, con un sistema de autenticación robusto (JWT de acceso + refresh vía cookie HttpOnly) y control de acceso basado en roles (RBAC).
+*   **Observabilidad 360°**: Dashboards en tiempo real para monitorear el abandono, la salud de DIDs/troncales y un sistema de WebSocket resiliente con heartbeats y reconexión automática.
+*   **Operaciones Listas para Producción**: Métricas personalizadas para Prometheus, alertas predefinidas para KPIs críticos, estrategia de backups y manifiestos de despliegue para Docker Compose y Kubernetes.
+*   **Experiencia de Usuario (UX) Profesional**: Flujo de onboarding de usuarios completo (invitar, aceptar, resetear contraseña), dashboard con alertas globales y un widget de estado de sesión claro.
+
 ## Go-Live Checklist (Puesta en Producción)
 
 ### Seguridad
@@ -160,3 +170,26 @@ curl -s $API/api/metrics | head
     psql -f ops/scripts/bootstrap_acme.sql
     ```
 4.  **Proveer Credenciales**: Entregar de forma segura el email y la contraseña al nuevo administrador del tenant.
+
+## Roadmap “Phase Next” (Opcionales Recomendados)
+
+Esta sección describe las siguientes mejoras estratégicas para evolucionar la plataforma, construyendo sobre la base sólida ya existente.
+
+### 1. Alta Disponibilidad y Resiliencia Geográfica
+-   **Réplicas de Base de Datos**: Implementar réplicas de lectura (read replicas) para PostgreSQL para distribuir la carga de reportes y analítica. Configurar un failover gestionado para la base de datos principal.
+-   **Almacenamiento Multi-AZ**: Configurar el bucket S3 para grabaciones en modo Multi-AZ y endurecer las políticas de ciclo de vida, considerando opciones como WORM (Write-Once, Read-Many) si la vertical de negocio lo requiere.
+
+### 2. Seguridad y Cumplimiento Avanzado
+-   **SSO y Provisioning**: Integrar Single Sign-On (SAML/OIDC) por tenant con proveedores como Okta o Azure AD. Implementar SCIM para el aprovisionamiento y desaprovisionamiento automático de usuarios.
+-   **Cifrado Avanzado**: Utilizar KMS (Key Management Service) para el cifrado de grabaciones en reposo, con políticas de rotación de claves programadas.
+-   **Gobernanza de Datos Regional**: Crear un mapa de datos y aplicar políticas específicas por país, como ventanas de marcado y listas DNC regionales, configurables por tenant.
+
+### 3. Controles de Coste y Escalado Inteligente
+-   **Quotas por Tenant**: Implementar límites (canales concurrentes, CPS, minutos/mes) por inquilino con "circuit breakers" para prevenir abusos o picos inesperados de coste.
+-   **Autoscaling por Métricas de Negocio**: Configurar el HPA de Kubernetes para escalar no solo por CPU/memoria, sino por métricas personalizadas como "leads pendientes en cola" o "agentes disponibles".
+-   **Data Lake para BI**: Archivar CDRs y datos de eventos en un formato eficiente como Parquet en un data lake (ej. S3 + Athena/BigQuery) para análisis de Business Intelligence a bajo coste.
+
+### 4. Producto, Gobernanza y Operación
+-   **Facturación y Uso**: Implementar un sistema de tracking de uso (minutos, llamadas, almacenamiento) por tenant. Exponer estos datos a través de webhooks para integrar con sistemas de facturación como Stripe.
+-   **Auditoría Centralizada**: Crear un "sink" para enviar los `audit_log` a un sistema SIEM (Security Information and Event Management) y definir políticas de retención diferenciadas.
+-   **Chaos Drills**: Realizar simulacros semestrales ("game days") para probar la resiliencia del sistema: forzar la caída de un proveedor SIP, simular un pico de abandono para verificar la Auto-Protección, o cortar la conexión WebSocket para probar la reconexión.
