@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "node src/server.js",
     "db:setup": "psql -h $PGHOST -p $PGPORT -U $PGUSER -d $PGDATABASE -f sql/schema.sql",
-    "orchestrator": "node src/services/orchestrator.js"
+    "orchestrator": "node src/services/orchestrator.js",
+    "smoke": "node ops/smoke/smoke.mjs"
   },
   "dependencies": {
     "bcrypt": "^5.1.1",
@@ -15,8 +16,11 @@
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "express-prom-bundle": "^7.0.0",
+    "express-rate-limit": "^7.3.1",
     "jsonwebtoken": "^9.0.2",
+    "node-fetch": "^3.3.2",
     "pg": "^8.11.5",
-    "ws": "^8.16.0"
+    "prom-client": "^15.1.2",
+    "ws": "^8.17.1"
   }
 }

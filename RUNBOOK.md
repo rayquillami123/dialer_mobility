@@ -2,10 +2,105 @@
 
 Este documento contiene procedimientos estándar para operar, monitorear y responder a incidentes comunes de la plataforma.
 
+## Go-Live Checklist (Puesta en Producción)
+
+### Seguridad
+- [ ] Rotar `JWT_ACCESS_SECRET` y `JWT_REFRESH_SECRET` con valores largos y únicos por entorno.
+- [ ] Revisar `CORS_ORIGIN` para permitir solo los dominios de frontend válidos.
+- [ ] Revisar roles del usuario inicial en la base de datos y eliminar cuentas de prueba.
+- [ ] Habilitar y forzar HTTPS/WSS en Nginx/LB y probar la conexión a `/ws`.
+- [ ] Definir y revisar políticas de retención de datos para CDRs, logs y grabaciones (ej. en S3).
+
+### Base de Datos
+- [ ] Ejecutar todas las migraciones SQL en el orden correcto.
+- [ ] Confirmar que los índices clave existen, especialmente en `cdr` (`tenant_id`, `received_at`).
+- [ ] Verificar configuración de `AUTOVACUUM` y memoria (`work_mem`, `shared_buffers`) en PostgreSQL.
+
+### FreeSWITCH
+- [ ] Verificar que el ESL está accesible desde el backend (`fs_cli -x status`).
+- [ ] Confirmar que las colas (`callcenter_config queue list`) y agentes (`callcenter_config agent list`) están creados.
+- [ ] Realizar una llamada de prueba para verificar el dialplan completo (AMD → `transfer callcenter(...)`).
+
+### Observabilidad
+- [ ] Verificar que Prometheus está recolectando métricas desde el endpoint `/api/metrics`.
+- [ ] Cargar las reglas de alerta (`ops/prometheus/alerts_dialer.yml`) en Prometheus.
+- [ ] Forzar escenarios de prueba (abandono alto, caída de troncal) y confirmar que la `GlobalAlertBar` y el `DashboardAutoProtect` reaccionan.
+
+### Backups y Recuperación de Desastres (DR)
+- [ ] Confirmar que el job de backup diario está activo.
+- [ ] Realizar al menos una prueba de restauración completa del backup en un entorno de staging.
+- [ ] Verificar las políticas de ciclo de vida en el bucket S3 para grabaciones (ej. mover a Glacier/Deep Archive).
+
+## Smoke Tests (Verificación Rápida)
+
+Estos tests validan que los componentes críticos (Auth, API, WS) están funcionando. Ejecutar tras cada despliegue.
+
+Asume que las siguientes variables de entorno están definidas:
+- `API`: URL base de la API (ej. `https://api.tudominio.com`)
+- `EMAIL`: Email del usuario de prueba.
+- `PASS`: Contraseña del usuario de prueba.
+
+### 1. Script Automatizado (Recomendado)
+El script `ops/smoke/smoke.mjs` realiza todas las validaciones de forma automática.
+
+```bash
+# Navega al directorio del backend para instalar dependencias si es necesario
+cd backend
+npm install node-fetch ws # (si no están ya en devDependencies)
+
+# Ejecuta el test
+API=$API EMAIL=$EMAIL PASS="$PASS" node ../ops/smoke/smoke.mjs
+```
+Un resultado `SMOKE OK` indica que las pruebas pasaron.
+
+### 2. Pasos Manuales
+
+#### 2.1 Autenticación y Endpoints
+```bash
+# Obtener token
+TOKEN=$(curl -s -X POST $API/api/auth/login \
+  -H 'content-type: application/json' \
+  -d "{\"email\":\"$EMAIL\",\"password\":\"$PASS\"}" \
+  | jq -r .access_token)
+
+# Verificar que el token no está vacío
+if [ -z "$TOKEN" ]; then echo "Login fallido"; exit 1; fi
+echo "Login OK, token obtenido."
+
+# Probar endpoint protegido (debe devolver 200)
+curl -s -H "Authorization: Bearer $TOKEN" "$API/api/reports/abandonment?window=15m" | jq .
+echo "Llamada a endpoint protegido OK."
+```
+
+#### 2.2 Conexión WebSocket
+Usa `websocat` para probar el handshake.
+```bash
+# Instala websocat si no lo tienes (ej. apt-get install websocat)
+websocat -H="Sec-WebSocket-Protocol: json" \
+  "$API/ws?token=$TOKEN"
+
+# Deberías ver un mensaje de bienvenida del servidor: {"type":"ws.hello", ...}
+```
+
+#### 2.3 Conexión ESL y Origen de Llamada (desde el host del backend)
+```bash
+# Conéctate al contenedor de FreeSWITCH
+docker exec -it freeswitch fs_cli
+
+# Dentro de fs_cli, prueba un origen simple
+> originate loopback/1000 &echo
+```
+
+#### 2.4 Métricas Prometheus
+```bash
+# Accede al endpoint (puede requerir IP autorizada según tu Nginx)
+curl -s $API/api/metrics | head
+```
+
 ## Alertas Comunes & Acciones
 
 ### 1. Alerta: Abandono > 3%
-- **Gatillo**: `GlobalAlertBar` en rojo; alerta de Grafana/Prometheus sobre `weighted_abandonment_pct > 3`.
+- **Gatillo**: `GlobalAlertBar` en rojo; alerta de Grafana/Prometheus sobre `abandonment_weighted_pct > 3`.
 - **Acción Inmediata**:
   1.  **Verificar Ocupación**: ¿Están los agentes en llamada o en pausa? ¿Hay agentes disponibles en la cola de la campaña afectada?
   2.  **Reducir Pacing**: Si la auto-protección no ha sido suficiente, pausar manualmente campañas de bajo rendimiento o reducir su `pacing` desde la UI.

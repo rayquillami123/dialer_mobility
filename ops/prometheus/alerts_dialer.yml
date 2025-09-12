@@ -1,0 +1,51 @@
+groups:
+- name: dialer-core
+  rules:
+  - alert: AbandonmentCritical
+    expr: abandonment_weighted_pct > 3
+    for: 5m
+    labels: { severity: critical }
+    annotations:
+      summary: "Abandono > 3% (Safe Harbor violable)"
+      description: "Tenant {{ $labels.tenant_id }} con abandono ponderado {{ $value }}% por >5m."
+
+  - alert: AbandonmentWarning
+    expr: abandonment_weighted_pct > 2
+    for: 10m
+    labels: { severity: warning }
+    annotations:
+      summary: "Abandono > 2% sostenido"
+      description: "Revisa disponibilidad de agentes/pacing antes de llegar al 3%."
+
+  - alert: APIM5xxRateHigh
+    expr: sum(rate(http_request_duration_seconds_count{code=~"5.."}[5m]))
+          / sum(rate(http_request_duration_seconds_count[5m])) > 0.02
+    for: 5m
+    labels: { severity: critical }
+    annotations:
+      summary: "Errores 5xx > 2%"
+      description: "Endpoint fallando con tasa de errores alta."
+
+  - alert: APILatencyP95High
+    expr: histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le)) > 0.5
+    for: 10m
+    labels: { severity: warning }
+    annotations:
+      summary: "P95 de latencia > 500ms"
+      description: "Latencia alta sostenida en la API."
+
+  - alert: WSConnectionsDrop
+    expr: (delta(ws_connections[5m]) < -10)
+    for: 2m
+    labels: { severity: warning }
+    annotations:
+      summary: "Caída brusca de conexiones WS"
+      description: "Posible problema de proxy / backend / despliegue."
+
+  - alert: AutoProtectEngaged
+    expr: avg(autoprotect_multiplier) < 0.7
+    for: 10m
+    labels: { severity: info }
+    annotations:
+      summary: "Auto-Protección activa (ritmo reducido)"
+      description: "El pacing promedio <0.7 por >10m (ver campañas y colas)."

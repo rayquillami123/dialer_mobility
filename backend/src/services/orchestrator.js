@@ -5,6 +5,7 @@ import { db } from '../server.js';
 import { numberToState, pickDidForState, canCallLeadToday } from './did_policy.js';
 import { getEslSocket } from './esl.js';
 import { computeDialRate } from '../lib/predictor.js';
+import { autoprotectMultiplier } from '../metrics/custom.js';
 
 // --- Estado en memoria por campaña (autoprotección) ---
 const autoProtectState = new Map(); // campaignId -> {multiplier, status, lastDecisionAt}
@@ -139,7 +140,7 @@ async function getTrunkWithFailover(campaign) {
         trunkHealthCache.timestamp = now;
     }
 
-    const rows = await db.query(`SELECT id, name, enabled FROM trunks WHERE enabled=true`);
+    const rows = await db.query(`SELECT id, name, enabled FROM trunks WHERE enabled=true AND tenant_id = $1`, [campaign.tenant_id]);
     const items = [];
     for (const t of rows.rows){
       let w = Number(weights[t.name] ?? 100);
@@ -179,6 +180,7 @@ async function loop(campaignId){
     const ap = await evaluateAutoProtection(campaign); // {multiplier, status, pct}
     const basePacing = Math.max(1, Math.floor(Number(campaign.pacing)||2));
     const effectivePacing = Math.max(1, Math.floor(basePacing * (ap.multiplier || 1)));
+    autoprotectMultiplier.set({ tenant_id: String(campaign.tenant_id), campaign_id: String(campaignId) }, ap.multiplier || 1);
 
     // Buscar un batch pequeño (pacing) de leads elegibles
     const batch = await db.query(`
@@ -186,21 +188,23 @@ async function loop(campaignId){
         select l.id as lead_id, l.list_id, l.phone, l.state, l.timezone
         from leads l
         where l.status in ('new','in_progress')
+          and l.tenant_id = $2
           and not exists (select 1 from dnc_numbers d where d.phone = l.phone)
         order by l.priority desc, l.id
         limit $1
         for update skip locked
       )
       select * from next
-    `, [effectivePacing]);
+    `, [effectivePacing, campaign.tenant_id]);
 
     for (const lead of batch.rows){
       // 1. Cumplimiento de ventana horaria
       const okWindow = await db.query(
         `select 1 from call_windows
          where active and (state is null or state=$1)
+           and tenant_id = $3
            and (now() at time zone $2)::time between start_local and end_local limit 1`,
-        [lead.state, lead.timezone || 'UTC']
+        [lead.state, lead.timezone || 'UTC', campaign.tenant_id]
       );
       if (okWindow.rowCount === 0) continue; // saltar lead fuera de ventana
 
@@ -212,7 +216,7 @@ async function loop(campaignId){
       }
 
       const st = lead.state || await numberToState(lead.phone);
-      const did = await pickDidForState(st);
+      const did = await pickDidForState(st, campaign.tenant_id);
       if (!did) continue;
 
       const cli = did.e164;
@@ -222,7 +226,7 @@ async function loop(campaignId){
           continue;
       }
       
-      const trunkInfo = await db.query('SELECT id FROM trunks WHERE name = $1', [trunkName]);
+      const trunkInfo = await db.query('SELECT id FROM trunks WHERE name = $1 AND tenant_id = $2', [trunkName, campaign.tenant_id]);
       const trunkDbId = trunkInfo.rows[0]?.id;
 
       // Construir originate
@@ -236,21 +240,19 @@ async function loop(campaignId){
         `X_LEAD=${lead.lead_id}`,
         `X_TRUNK=${trunkName}`,
         `X_DID=${did.id}`,
-        `X_QUEUE=${campaign.queue_name || 'sales'}`
+        `X_QUEUE=${campaign.queue || 'sales'}`
       ].join(',');
 
-      const dest = lead.phone.replace('+',''); // ajusta a tu gateway
-      // En lugar de &park(), transferimos a un dialplan que se encargará del ruteo AMD
+      // Transferir a dialplan que enruta a la cola via callcenter
+      const dest = lead.phone.replace('+','');
       const cmd = `originate {${vars}}sofia/gateway/${trunkName}/${dest} &transfer('dialer_amd_routing XML default')`;
+      await api(cmd);
 
       // Registrar intento
-      await db.query(`insert into attempts(campaign_id, list_id, lead_id, did_id, trunk_id, dest_phone, state, result)
-                      values($1,$2,$3,$4,$5,$6,$7,$8)`,
-                      [campaignId, lead.list_id, lead.lead_id, did.id, trunkDbId, lead.phone, st, 'Dialing']);
+      await db.query(`insert into attempts(campaign_id, list_id, lead_id, did_id, trunk_id, dest_phone, state, result, tenant_id)
+                      values($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+                      [campaignId, lead.list_id, lead.lead_id, did.id, trunkDbId, lead.phone, st, 'Dialing', campaign.tenant_id]);
       
-      // Ejecutar originate (fire-and-forget)
-      api(cmd);
-
       // Marcar lead en progreso
       await db.query('update leads set status=$2, last_attempt_at=now(), attempt_count_total=attempt_count_total+1 where id=$1',
                      [lead.lead_id, 'in_progress']);

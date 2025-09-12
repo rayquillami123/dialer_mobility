@@ -19,6 +19,9 @@ import { router as users } from './routes/users.js';
 import jwt from 'jsonwebtoken';
 import url from 'node:url';
 import promBundle from 'express-prom-bundle';
+import { loginLimiter, apiLimiter } from './mw/ratelimit.js';
+import { audit } from './mw/audit.js';
+import { wsConnections } from './metrics/custom.js';
 
 const app = express();
 const metrics = promBundle({
@@ -36,6 +39,9 @@ app.use(cors({
 }));
 app.use(cookieParser());
 app.use(express.json({ limit: '2mb' }));
+app.use(audit(db));
+app.use('/api/auth/login', loginLimiter);
+app.use('/api/', apiLimiter);
 
 // (Opcional) servir descargables si defines DOWNLOADS_DIR
 if (process.env.DOWNLOADS_DIR) {
@@ -63,7 +69,7 @@ app.use('/api/recordings', recordings);
 
 
 // WS
-const server = app.listen(process.env.PORT || 9003, ()=>{
+const server = app.listen(process.env.PORT || 8080, ()=>{
   console.log('API listening on', server.address());
 });
 
@@ -73,8 +79,10 @@ const socketsByTenant = new Map(); // tenant_id -> Set<WebSocket>
 function addSocket(tenantId, ws) {
   if (!socketsByTenant.has(tenantId)) socketsByTenant.set(tenantId, new Set());
   socketsByTenant.get(tenantId).add(ws);
+  wsConnections.inc({ tenant_id: String(tenantId) }, 1);
   ws.on('close', () => {
     socketsByTenant.get(tenantId)?.delete(ws);
+    wsConnections.dec({ tenant_id: String(tenantId) }, 1);
   });
 }
 

@@ -1,6 +1,7 @@
 
 import express from 'express';
 import { db } from '../server.js';
+import { abandonmentWeighted } from '../metrics/custom.js';
 export const router = express.Router();
 
 router.get('/cdr', async (req,res)=>{
@@ -31,7 +32,7 @@ router.get('/abandonment', async (req, res) => {
           (raw->>'safe_harbor')::bool AS safe_harbor, 
           (raw->>'answer_ts')::timestamptz AS answer_ts
         FROM cdr
-        WHERE received_at >= now() - interval '${iv}'
+        WHERE received_at >= now() - interval '${iv}' AND tenant_id = $1
       )
       SELECT
         campaign_id,
@@ -46,7 +47,19 @@ router.get('/abandonment', async (req, res) => {
       GROUP BY campaign_id
       ORDER BY abandonment_pct DESC NULLS LAST;
     `;
-    const r = await db.query(q);
+    const r = await db.query(q, [req.user.tenant_id]);
+
+    // Opcional: calcula promedio ponderado y expórtalo como métrica
+    if (win === '15m') {
+      let num = 0, den = 0;
+      for (const it of r.rows) {
+        num += (Number(it.abandonment_pct) || 0) * (Number(it.total_answered) || 0);
+        den += (Number(it.total_answered) || 0);
+      }
+      const weightedAvgPct = den ? num / den : 0;
+      abandonmentWeighted.set({ tenant_id: String(req.user.tenant_id) }, weightedAvgPct);
+    }
+    
     res.json({ window: iv, items: r.rows });
   } catch (e) {
     console.error('abandonment error', e);
@@ -85,7 +98,7 @@ router.get('/abandonment/timeseries', async (req, res) => {
                COUNT(*) AS answered
         FROM cdr
         WHERE received_at BETWEEN (SELECT start_ts FROM params) AND (SELECT end_ts FROM params)
-          AND (raw->>'sip_code') = '200'
+          AND (raw->>'sip_code') = '200' AND tenant_id = $1
           ${campaignId ? `AND (campaign_id = ${campaignId} OR (raw->>'X_CAMPAIGN')::int = ${campaignId})` : ''}
         GROUP BY 1
       ),
@@ -96,7 +109,7 @@ router.get('/abandonment/timeseries', async (req, res) => {
         FROM cdr
         WHERE received_at BETWEEN (SELECT start_ts FROM params) AND (SELECT end_ts FROM params)
           AND (raw->>'sip_code') = '200'
-          AND ((raw->>'safe_harbor')::bool IS TRUE)
+          AND ((raw->>'safe_harbor')::bool IS TRUE) AND tenant_id = $1
           ${campaignId ? `AND (campaign_id = ${campaignId} OR (raw->>'X_CAMPAIGN')::int = ${campaignId})` : ''}
         GROUP BY 1
       )
@@ -114,7 +127,7 @@ router.get('/abandonment/timeseries', async (req, res) => {
       ORDER BY s.bucket_start ASC;
     `;
 
-    const r = await db.query(q);
+    const r = await db.query(q, [req.user.tenant_id]);
     res.json({
       window: `${hours}h`,
       bucket: iv,
@@ -136,8 +149,8 @@ router.get('/abandonment/timeseries', async (req, res) => {
 router.get('/agg_campaign_day', async (req, res) => {
     try {
         // Basic query for now, can be expanded with filters
-        const q = `SELECT * FROM agg_campaign_day ORDER BY day DESC, campaign_id LIMIT 100;`;
-        const r = await db.query(q);
+        const q = `SELECT * FROM agg_campaign_day WHERE tenant_id = $1 ORDER BY day DESC, campaign_id LIMIT 100;`;
+        const r = await db.query(q, [req.user.tenant_id]);
         res.json({ items: r.rows });
     } catch (e) {
         console.error('agg_campaign_day error', e);
