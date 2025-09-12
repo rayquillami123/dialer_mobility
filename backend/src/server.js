@@ -18,8 +18,18 @@ import { bearerOrApiKey, authenticate } from './mw/authz.js';
 import { router as users } from './routes/users.js';
 import jwt from 'jsonwebtoken';
 import url from 'node:url';
+import promBundle from 'express-prom-bundle';
 
 const app = express();
+const metrics = promBundle({
+  includeMethod: true,
+  includePath: true,
+  customLabels: { app: 'dialer' },
+  buckets: [0.05, 0.1, 0.3, 0.6, 1, 2, 5],
+  metricsPath: '/api/metrics',
+});
+app.use(metrics);
+
 app.use(cors({
   origin: process.env.CORS_ORIGIN?.split(',') || true,
   credentials: true,

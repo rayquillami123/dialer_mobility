@@ -1,5 +1,15 @@
 import type {NextConfig} from 'next';
 
+const securityHeaders = [
+  { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
+  { key: 'X-Content-Type-Options', value: 'nosniff' },
+  { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+  { key: 'Permissions-Policy', value: 'microphone=()' },
+  { key: 'Content-Security-Policy',
+    value: "default-src 'self'; img-src 'self' data: https:; media-src 'self' https:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://api.tudominio.com wss://api.tudominio.com;"
+  },
+];
+
 const nextConfig: NextConfig = {
   /* config options here */
   typescript: {
@@ -7,6 +17,11 @@ const nextConfig: NextConfig = {
   },
   eslint: {
     ignoreDuringBuilds: true,
+  },
+  async headers() {
+    return [
+      { source: '/(.*)', headers: securityHeaders },
+    ];
   },
   images: {
     remotePatterns: [
