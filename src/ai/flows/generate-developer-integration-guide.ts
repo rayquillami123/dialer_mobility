@@ -237,6 +237,27 @@ Your task is to take the following comprehensive technical blueprint for a profe
 </configuration>
 \`\`\`
 
+**7. Backend: Core Technical Services**
+
+**A) ESL Aggregator (P0):**
+   - **Subscription:** \`CHANNEL_CREATE/ANSWER/HANGUP\`, \`CUSTOM callcenter::info\`.
+   - **Logic:** Aggregates metrics in-memory or in Redis across 5s, 60s, and 5m windows (ASR, CPS, CC, abandonment, AMD split, ACD).
+   - **Output:** Publishes \`kpi.tick\` and \`call.update\` events to the UI via WebSocket.
+
+**B) CDR Handler (P0):**
+   - **Endpoint:** Exposes a \`/cdr\` endpoint for \`mod_json_cdr\` to POST to.
+   - **Logic:** Responds with a 2xx status code to acknowledge receipt. If it fails, FreeSWITCH will save the CDR to \`log-dir\`.
+   - **Data to Persist:** \`campaign_id, list_id, lead_id, trunk_id, queue, agent_id, start/answer/end, billsec, sip_hangup_cause, hangup_cause, amd_label/confidence/latency_ms, recording_url\`. Remember to use \`export_vars\` in the originate command.
+
+**C) AMD/IA Service (P1):**
+   - **Input:** Receives audio via WebSocket from \`mod_audio_fork\` (PCM L16 @ 16kHz).
+   - **Output:** Returns a classification and sets channel variables: \`AMD_LABEL\`, \`AMD_CONFIDENCE\`, \`AMD_LATENCY_MS\`.
+   - **Routing Rules:** \`HUMAN\` -> \`callcenter\`; \`VOICEMAIL\` -> trigger beep detection (\`avmd\`) and drop message; \`FAX/SIT\` -> hang up and flag the provider/list for review.
+
+**D) Predictive Predictor (P1):**
+   - **Algorithm:** A pacing loop that balances occupancy and AHT goals, constrained by CPS limits and the 60s abandonment rate, and adjusted by the 5m ASR.
+   - **Distribution:** Distributes calls across trunks based on configured weights and CPS capacity.
+
 **Instructions for the AI:**
 - Generate a comprehensive, well-structured developer integration guide based on this FreeSWITCH-first blueprint.
 - Use Markdown for formatting. Include clear headings, lists, and properly formatted code blocks for API payloads, SQL schemas, and FreeSWITCH configurations/commands.
