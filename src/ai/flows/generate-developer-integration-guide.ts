@@ -187,22 +187,40 @@ Your task is to take the following comprehensive technical blueprint for a profe
 \`\`\`xml
 <configuration name="callcenter.conf" description="Callcenter / ACD">
   <settings>
+    <!-- Optional ODBC DSN if you share state across nodes -->
+    <!-- <param name="odbc-dsn" value="pgsql://user:pass@127.0.0.1:5432/ccdb"/> -->
     <param name="debug" value="0"/>
   </settings>
+
   <queues>
     <queue name="sales">
       <param name="strategy" value="longest-idle-agent"/>
+      <param name="time-base-score" value="queue"/>
       <param name="moh-sound" value="local_stream://moh"/>
+      <param name="max-wait-time" value="3600"/>
+      <param name="max-wait-time-with-no-agent" value="30"/>
       <param name="tier-rules-apply" value="true"/>
       <param name="tier-rule-wait-second" value="15"/>
+      <param name="tier-rule-wait-multiply-level" value="true"/>
+      <param name="discard-abandoned-after" value="5"/>
+      <param name="abandoned-resume-allowed" value="false"/>
+      <param name="no-answer-delay-time" value="2"/>
       <param name="wrap-up-time" value="3"/>
     </queue>
   </queues>
+
   <agents>
-    <agent name="1001" type="callback" contact="user/1001" status="Logged Out"/>
+    <agent name="1001" type="callback" contact="user/1001"
+           status="Logged Out" max-no-answer="3" wrap-up-time="3"
+           no-answer-delay-time="2" ready-timeout="0"/>
+    <agent name="1002" type="callback" contact="user/1002"
+           status="Logged Out" max-no-answer="3" wrap-up-time="3"
+           no-answer-delay-time="2" ready-timeout="0"/>
   </agents>
+
   <tiers>
     <tier agent="1001" queue="sales" level="1" position="1"/>
+    <tier agent="1002" queue="sales" level="1" position="1"/>
   </tiers>
 </configuration>
 \`\`\`
