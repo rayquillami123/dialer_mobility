@@ -39,7 +39,7 @@ Your task is to take the following comprehensive technical blueprint for a profe
 
 **3. UI/Backend Integration Plan by Screen:**
 
-**3.1. Dashboard:**
+**3.1. Dashboard (P0):**
    - **Required KPIs:** ASR (5m), CPS (current), CC (concurrency), Abandon Rate (60s), ACD/ALOC.
    - **Data Source:** A real-time aggregator (in-memory or Redis-based) consuming ESL events.
    - **WebSocket Event Contract (tick every 1s):**
@@ -53,10 +53,11 @@ Your task is to take the following comprehensive technical blueprint for a profe
        "amd": {"HUMAN": 12, "VOICEMAIL": 8, "FAX": 1, "SIT": 2, "UNKNOWN": 5}
      }
      \`\`\`
+   - **UI Adds:** Selector for Campaign/Provider + quick range (1h/Today/24h). Mini sparklines for 5-min trends.
 
-**3.2. Real-Time Monitor:**
-   - **Required Columns:** Campaign, Trunk, SIP Code, Queue, Agent.
-   - **Required Filters:** By Campaign, Trunk, and Status.
+**3.2. Real-Time Monitor (P0):**
+   - **Required Columns:** Campaign, Trunk, SIP Code, Queue, Agent, AMD Confidence.
+   - **Required Filters:** By Campaign, Trunk, Status, and AMD label. Search by phone number.
    - **ESL Events to Subscribe:** \`CHANNEL_CREATE\`, \`CHANNEL_ANSWER\`, \`CHANNEL_HANGUP\`, \`CUSTOM callcenter::info\`.
    - **WebSocket Event Contract (per call event):**
      \`\`\`json
@@ -70,9 +71,10 @@ Your task is to take the following comprehensive technical blueprint for a profe
        "sip": "486", "queue": "sales", "agentId": "1001", "billsec": 10
      }
      \`\`\`
+   - **DoD:** UI latency <500ms from event. On hangup, row grays out for 3-5s then disappears.
 
-**3.3. Campaigns (Create/Edit):**
-   - **Required Fields:** Destination Queue (for \`mod_callcenter\`), Trunk Weights/CPS Caps.
+**3.3. Campaigns (P0):**
+   - **Required Fields:** Destination Queue (for \`mod_callcenter\`), Trunk Weights/CPS Caps, Start/Pause/Stop actions in header.
    - **API Endpoints:**
      - \`POST /api/campaigns\` (Create)
      - \`PATCH /api/campaigns/:id\` (Edit)
@@ -93,9 +95,10 @@ Your task is to take the following comprehensive technical blueprint for a profe
      \`\`\`
      originate {origination_caller_id_number=+13055550123,X_CAMPAIGN=cmp_42,X_LIST=lst_2025_12_09,X_LEAD=lead_99,X_TRUNK=gw_main,export_vars='X_CAMPAIGN,X_LIST,X_LEAD,X_TRUNK'} sofia/gateway/gw_main/12223334444 &park()
      \`\`\`
+   - **DoD:** Orchestrator originates calls with correct vars. HUMANs are routed to \`callcenter\`; others follow rules. Pacing respects abandon cap.
 
-**3.4. Lists / Leads:**
-   - **CSV Import Validation:** Normalize numbers to E.164, detect timezone, check against DNC, find duplicates.
+**3.4. Lists / Leads (P0):**
+   - **CSV Import Validation:** Normalize numbers to E.164, detect timezone, check against DNC, find duplicates. Show import progress.
    - **Retry Logic (by disposition):**
      \`\`\`json
      {
@@ -106,21 +109,24 @@ Your task is to take the following comprehensive technical blueprint for a profe
    - **API Endpoints:**
      - \`POST /api/lists/:id/import\` (for CSV upload)
      - \`GET /api/lists/:id/leads\` (paginated)
+   - **DoD:** Each lead record has \`attempts\`, \`lastDisposition\`, \`nextTryAt\`. List-level metrics (coverage, contact rate) are available.
 
-**3.5. Queues (mod_callcenter):**
+**3.5. Providers / Trunks (P1):**
+   - **UI Adds:** Health table per trunk (ASR 5m, PDD, SIP mix, %SIT/FAX, CPS). Failover policy configuration.
+   - **DoD:** Alerts trigger on ASR < 20%, PDD > 5s, SIT/FAX > 3%, CPS > 90% of cap. "Test Route" button originates a test call.
+
+**3.6. Queues & Agents (P1):**
+   - **UI Adds:** Manage queues/tiers, assign agents. Agent metrics (SLA, AHT). Softphone UI for WebRTC (JsSIP or Verto).
    - **Backend Management:** Expose functionality to execute \`callcenter_config\` commands.
    - **Real-time State:** Use \`CUSTOM callcenter::info\` events to update agent/queue status on the UI.
+   - **DoD:** \`callcenter::info\` events drive live UI metrics. Agent state changes affect predictive pacing (occupancy).
 
-**3.6. Agent Desk:**
-   - **State Management:** \`POST /api/agents/:id/state {"state": "Available"}\` translates to \`callcenter_config agent set status <agent_id> Available\`.
-   - **WebRTC:** Use JsSIP with a FreeSWITCH Sofia profile configured for WSS and DTLS-SRTP.
+**3.7. Dispositions & Callbacks (P0->P1):**
+   - **UI Adds:** CRUD for dispositions and their associated rules (retry, DNC, etc.). Calendar for scheduling callbacks.
+   - **DoD:** At end of call, orchestrator applies disposition rules to update lead/schedule callbacks.
 
 **4. Dialplan & AMD Logic (FreeSWITCH XML):**
    - **Audio Fork for AI AMD:**
-     \`\`\`xml
-     <action application="javascript" data="scripts/audio_fork.js"/>
-     \`\`\`
-     *Or using the application directly:*
      \`uuid_audio_fork \${uuid} start ws://amd-svc:8080 {mix=true,rate=16000,format=L16}\`
 
    - **Routing based on AMD result (set by external service):**
@@ -230,5 +236,3 @@ const generateDeveloperIntegrationGuideFlow = ai.defineFlow(
     return output!;
   }
 );
-
-    
