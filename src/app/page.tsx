@@ -9,13 +9,15 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Switch } from '@/components/ui/switch';
-import { Download, PhoneCall, Play, Plus, Settings, Upload, User, Activity, Database, Factory, PhoneIncoming, PhoneOutgoing, PhoneOff, FileDown, Bot, Code, Volume2 } from 'lucide-react';
+import { Download, PhoneCall, Play, Plus, Settings, Upload, User, Activity, Database, Factory, PhoneIncoming, PhoneOutgoing, PhoneOff, FileDown, Bot, Code, Volume2, HardDrive } from 'lucide-react';
 import { generateIntegrationNotes } from '@/ai/flows/generate-integration-notes';
 import { AmiAriNotesForm, Trunk } from '@/lib/types';
 import { suggestAMIARIConnectionNotes } from '@/ai/flows/suggest-ami-ari-connection-notes';
 import { useForm, Controller } from 'react-hook-form';
 import { generateDeveloperIntegrationGuide } from '@/ai/flows/generate-developer-integration-guide';
 import { generateAudioFromText } from '@/ai/flows/generate-audio-from-text';
+import { useDialerWS } from '@/hooks/useDialerWS';
+import { useDialerStore } from '@/store/dialer';
 
 /**
  * FRONTEND MVP – DIALER INTELIGENTE (Asterisk backend)
@@ -123,18 +125,17 @@ interface Lead {
 interface LeadList { id: string; name: string; leads: Lead[]; createdAt: string; }
 
 interface LiveCall {
-  id: string;
+  uuid: string;
   phone: string;
   state?: string;
   leadId?: string;
   campaignId?: string;
   trunkId?: string;
   status: CallStatus;
-  amdLabel?: 'HUMAN' | 'VOICEMAIL' | 'FAX' | 'SIT' | 'NOANSWER' | 'UNKNOWN';
-  amdConfidence?: number;
+  amd?: {label?: 'HUMAN' | 'VOICEMAIL' | 'FAX' | 'SIT' | 'NOANSWER' | 'UNKNOWN'; confidence?: number};
   agent?: string;
-  durationSec: number;
-  startedAt: string;
+  billsec?: number;
+  ts: number;
 }
 
 // -------------------------- Utilidades --------------------------
@@ -178,8 +179,8 @@ const sections = [
   { id: 'providers', label: 'Proveedores', icon: Factory },
   { id: 'compliance', label: 'Cumplimiento', icon: Settings },
   { id: 'scripts', label: 'Guiones', icon: FileDown },
-  { id: 'audio', label: 'Audio TTS/Prompts', icon: Download },
-  { id: 'qa', label: 'Grabaciones & QA', icon: Activity },
+  { id: 'audio', label: 'Audio TTS/Prompts', icon: Volume2 },
+  { id: 'qa', label: 'Grabaciones & QA', icon: HardDrive },
   { id: 'integrations', label: 'Integraciones', icon: Bot },
   { id: 'audit', label: 'Auditoría', icon: Settings },
   { id: 'reports', label: 'Reportes', icon: FileDown },
@@ -193,53 +194,15 @@ export default function DialerInteligenteApp() {
   const [trunks, setTrunks] = useState<Trunk[]>([{
     id: uid(), name: 'US-CLI-MAIN', host: 'sip.provider.net', codecs: 'ulaw,alaw', cliRoute: 'CLI', maxCPS: 20, enabled: true,
   }]);
-  const [liveCalls, setLiveCalls] = useState<LiveCall[]>([]);
-  const [kpi, setKpi] = useState({ offered: 0, connected: 0, human: 0, voicemail: 0, avgAHT: 0 });
+  
+  // Connect to the WebSocket, assuming it's served on the same host.
+  // In a real app, you'd get this from an environment variable.
+  const wsUrl = typeof window !== 'undefined' 
+    ? `${window.location.protocol.replace('http', 'ws')}//${window.location.host}/api/realtime`
+    : '';
+  useDialerWS(wsUrl);
 
-  // Simulador de llamadas en tiempo real (placeholder del WS/ARI)
-  useEffect(() => {
-    const t = setInterval(() => {
-      // Decaimiento y actualización de KPIs simples
-      setLiveCalls(prev => prev
-        .map(c => ({ ...c, durationSec: c.status === 'Connected' || c.status === 'Human' ? c.durationSec + 1 : c.durationSec }))
-        .filter(c => !(c.status === 'Ended' && (Date.now() - new Date(c.startedAt).getTime()) > 15000))
-      );
-
-      if (Math.random() < 0.35) {
-        // simular nueva llamada
-        const statusPool: CallStatus[] = ['Dialing', 'Ringing', 'Connected', 'Voicemail', 'Fax', 'SIT', 'NoAnswer'];
-        const status = statusPool[Math.floor(Math.random() * statusPool.length)];
-        const amdMap: Record<string, LiveCall['amdLabel']> = {
-          'Connected': 'HUMAN',
-          'Voicemail': 'VOICEMAIL',
-          'Fax': 'FAX',
-          'SIT': 'SIT',
-          'NoAnswer': 'NOANSWER',
-          'Ringing': 'UNKNOWN',
-          'Dialing': 'UNKNOWN',
-          'EarlyMedia': 'UNKNOWN'
-        };
-        const c: LiveCall = {
-          id: uid(),
-          phone: '+1' + (2000000000 + Math.floor(Math.random()*700000000)).toString(),
-          status,
-          amdLabel: amdMap[status] ?? 'UNKNOWN',
-          amdConfidence: Math.random().toFixed(2) as unknown as number,
-          durationSec: 0,
-          startedAt: new Date().toISOString(),
-        };
-        setKpi(k => ({
-          offered: k.offered + 1,
-          connected: k.connected + (status === 'Connected' ? 1 : 0),
-          human: k.human + (status === 'Connected' ? 1 : 0),
-          voicemail: k.voicemail + (status === 'Voicemail' ? 1 : 0),
-          avgAHT: k.avgAHT ? Math.round((k.avgAHT + c.durationSec) / 2) : c.durationSec,
-        }));
-        setLiveCalls(prev => [c, ...prev].slice(0, 200));
-      }
-    }, 1000);
-    return () => clearInterval(t);
-  }, []);
+  const allCalls = useDialerStore((s) => Object.values(s.calls));
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white text-slate-900">
@@ -268,10 +231,10 @@ export default function DialerInteligenteApp() {
         </nav>
 
         <main className="lg:col-span-9 xl:col-span-10">
-          {active === 'dashboard' && <Dashboard kpi={kpi} liveCalls={liveCalls}/>} 
+          {active === 'dashboard' && <Dashboard />} 
           {active === 'campaigns' && <Campaigns campaigns={campaigns} setCampaigns={setCampaigns} lists={lists} trunks={trunks}/>} 
           {active === 'lists' && <Lists lists={lists} setLists={setLists}/>} 
-          {active === 'realtime' && <Realtime liveCalls={liveCalls}/>} 
+          {active === 'realtime' && <Realtime />} 
           {active === 'agent' && <AgentDesk/>} 
           {active === 'queues' && <Queues/>}
           {active === 'dispositions' && <Dispositions/>}
@@ -283,7 +246,7 @@ export default function DialerInteligenteApp() {
           {active === 'qa' && <QARecordings/>}
           {active === 'integrations' && <Integrations/>}
           {active === 'audit' && <AuditLog/>}
-          {active === 'reports' && <Reports liveCalls={liveCalls} campaigns={campaigns}/>}
+          {active === 'reports' && <Reports allCalls={allCalls} campaigns={campaigns}/>}
           {active === 'settings' && <TrunksSettings trunks={trunks} setTrunks={setTrunks}/>}
         </main>
       </div>
@@ -309,30 +272,32 @@ function Stat({ title, value, icon: Icon }: { title: string; value: React.ReactN
   );
 }
 
-function Dashboard({ kpi, liveCalls }: { kpi: any; liveCalls: LiveCall[] }) {
-  const running = liveCalls.filter(c => c.status !== 'Ended');
-  const humans = liveCalls.filter(c => c.amdLabel === 'HUMAN');
-  const vm = liveCalls.filter(c => c.amdLabel === 'VOICEMAIL');
-  const fax = liveCalls.filter(c => c.amdLabel === 'FAX');
+function Dashboard() {
+  const kpi = useDialerStore((s) => s.kpi);
+  const calls = useDialerStore((s) => Object.values(s.calls));
+  
+  const humans = calls.filter(c => c.amd?.label === 'HUMAN').length;
+  const vm = calls.filter(c => c.amd?.label === 'VOICEMAIL').length;
+  const otherAmd = calls.filter(c => ['FAX', 'SIT'].includes(c.amd?.label ?? '')).length;
 
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
-        <Stat title="Ofrecidas" value={kpi.offered} icon={PhoneOutgoing}/>
-        <Stat title="Conectadas" value={kpi.connected} icon={PhoneIncoming}/>
-        <Stat title="Human" value={humans.length} icon={User}/>
-        <Stat title="Voicemail" value={vm.length} icon={PhoneOff}/>
-        <Stat title="Fax/SIT" value={fax.length} icon={Factory}/>
-        <Stat title="AHT (s)" value={kpi.avgAHT} icon={Activity}/>
+        <Stat title="ASR (5m)" value={kpi ? (kpi.asr5m * 100).toFixed(1) + '%' : '...'} icon={PhoneOutgoing}/>
+        <Stat title="ACD (s)" value={kpi ? kpi.acd.toFixed(1) : '...'} icon={PhoneIncoming}/>
+        <Stat title="Humanos" value={humans} icon={User}/>
+        <Stat title="Buzones" value={vm} icon={PhoneOff}/>
+        <Stat title="SIT/Fax" value={otherAmd} icon={Factory}/>
+        <Stat title="Abandono (60s)" value={kpi ? (kpi.abandon60s * 100).toFixed(2) + '%' : '...'} icon={Activity}/>
       </div>
 
       <Card className="shadow-sm">
         <CardHeader>
           <CardTitle>Monitor en tiempo real</CardTitle>
-          <CardDescription>Flujo de llamadas más recientes (simulado)</CardDescription>
+          <CardDescription>Mostrando las últimas 30 llamadas del stream en vivo.</CardDescription>
         </CardHeader>
         <CardContent>
-          <LiveTable rows={liveCalls.slice(0, 30)} />
+          <LiveTable rows={calls.slice(0, 30)} />
         </CardContent>
       </Card>
     </div>
@@ -730,6 +695,13 @@ function Lists({ lists, setLists }: { lists: LeadList[]; setLists: any }) {
 // -------------------------- Tiempo real --------------------------
 
 function LiveTable({ rows }: { rows: LiveCall[] }) {
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
   return (
     <div className="overflow-auto border rounded-xl">
       <table className="min-w-full text-sm">
@@ -745,13 +717,13 @@ function LiveTable({ rows }: { rows: LiveCall[] }) {
         </thead>
         <tbody>
           {rows.map(r => (
-            <tr key={r.id} className="border-t">
-              <td className="px-3 py-2">{new Date(r.startedAt).toLocaleTimeString()}</td>
+            <tr key={r.uuid} className="border-t">
+              <td className="px-3 py-2">{new Date(r.ts).toLocaleTimeString()}</td>
               <td className="px-3 py-2 font-mono">{r.phone}</td>
-              <td className="px-3 py-2">{r.status}</td>
-              <td className="px-3 py-2">{r.amdLabel}</td>
-              <td className="px-3 py-2">{typeof r.amdConfidence === 'number' ? r.amdConfidence.toFixed(2) : r.amdConfidence}</td>
-              <td className="px-3 py-2">{r.durationSec}s</td>
+              <td className="px-3 py-2">{r.state}</td>
+              <td className="px-3 py-2">{r.amd?.label}</td>
+              <td className="px-3 py-2">{typeof r.amd?.confidence === 'number' ? r.amd.confidence.toFixed(2) : ''}</td>
+              <td className="px-3 py-2">{r.billsec ?? Math.max(0, Math.floor((now - r.ts) / 1000))}s</td>
             </tr>
           ))}
         </tbody>
@@ -760,12 +732,13 @@ function LiveTable({ rows }: { rows: LiveCall[] }) {
   );
 }
 
-function Realtime({ liveCalls }: { liveCalls: LiveCall[] }) {
+function Realtime() {
+  const calls = useDialerStore((s) => Object.values(s.calls));
   return (
     <div className="space-y-4">
       <h2 className="text-xl font-semibold">Monitor en tiempo real</h2>
-      <LiveTable rows={liveCalls}/>
-      <p className="text-xs text-slate-500">*Datos simulados. Conectar a WS/ARI del backend para datos reales.</p>
+      <LiveTable rows={calls}/>
+      <p className="text-xs text-slate-500">*Datos conectados al WebSocket del backend.</p>
     </div>
   );
 }
@@ -815,7 +788,7 @@ function AgentDesk() {
 
 // -------------------------- Reportes --------------------------
 
-function Reports({ liveCalls, campaigns }: { liveCalls: LiveCall[]; campaigns: Campaign[] }) {
+function Reports({ allCalls, campaigns }: { allCalls: LiveCall[]; campaigns: Campaign[] }) {
   const [from, setFrom] = useState<string>('');
   const [to, setTo] = useState<string>('');
   const [campaignId, setCampaignId] = useState<string | 'all'>('all');
@@ -823,11 +796,11 @@ function Reports({ liveCalls, campaigns }: { liveCalls: LiveCall[]; campaigns: C
   const rows = useMemo(() => {
     const f = from ? new Date(from).getTime() : 0;
     const t = to ? new Date(to).getTime() : Infinity;
-    return liveCalls.filter(c => {
-      const ts = new Date(c.startedAt).getTime();
+    return allCalls.filter(c => {
+      const ts = c.ts;
       return ts >= f && ts <= t && (campaignId === 'all' || c.campaignId === campaignId);
     });
-  }, [from, to, campaignId, liveCalls]);
+  }, [from, to, campaignId, allCalls]);
 
   return (
     <div className="space-y-4">
