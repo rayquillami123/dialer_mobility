@@ -231,28 +231,53 @@ Your task is to take the following comprehensive technical blueprint for a profe
 <configuration name="json_cdr.conf" description="JSON CDR to HTTP">
   <settings>
     <param name="log-dir" value="/var/log/freeswitch/json_cdr"/>
+    <param name="legs" value="ab"/>
     <param name="url" value="https://api.mi-dialer.com/cdr"/>
     <param name="auth-scheme" value="Bearer"/>
     <param name="auth-credential" value="PON_AQUI_TU_TOKEN"/>
     <param name="retries" value="3"/>
     <param name="delay" value="5"/>
+    <param name="encode-urls" value="true"/>
     <param name="log-b-leg" value="true"/>
     <param name="template" value="default"/>
   </settings>
   <templates>
     <template name="default"><![CDATA[
 {
-  "uuid": "\\\${uuid}", "call_id": "\\\${sip_call_id}", "direction": "\\\${direction}",
-  "start_stamp": "\\\${start_stamp}", "answer_stamp": "\\\${answer_stamp}", "end_stamp": "\\\${end_stamp}",
-  "duration": \\\${duration}, "billsec": \\\${billsec},
-  "hangup_cause": "\\\${hangup_cause}", "sip_hangup_cause": "\\\${sip_hangup_cause}",
-  "campaign_id": "\\\${X_CAMPAIGN}", "list_id": "\\\${X_LIST}", "lead_id": "\\\${X_LEAD}",
-  "trunk_id": "\\\${X_TRUNK}", "queue": "\\\${cc_queue}", "agent_id": "\\\${cc_agent}",
-  "amd_label": "\\\${AMD_LABEL}", "amd_confidence": "\\\${AMD_CONFIDENCE}",
-  "progress_ms": "\\\${progress_ms}", "early_media_ms": "\\\${early_media_ms}"
+  "uuid": "$\{uuid}",
+  "call_id": "$\{sip_call_id}",
+  "direction": "$\{direction}",
+  "start_stamp": "$\{start_stamp}",
+  "answer_stamp": "$\{answer_stamp}",
+  "end_stamp": "$\{end_stamp}",
+  "duration": $\{duration},
+  "billsec": $\{billsec},
+  "hangup_cause": "$\{hangup_cause}",
+  "sip_hangup_cause": "$\{sip_hangup_cause}",
+  "caller_id_name": "$\{caller_id_name}",
+  "caller_id_number": "$\{caller_id_number}",
+  "destination_number": "$\{destination_number}",
+
+  "campaign_id": "$\{X_CAMPAIGN}",
+  "list_id": "$\{X_LIST}",
+  "lead_id": "$\{X_LEAD}",
+  "trunk_id": "$\{X_TRUNK}",
+  "queue": "$\{cc_queue}",
+  "agent_id": "$\{cc_agent}",
+  "recording_url": "$\{record_session_url}",
+
+  "amd_label": "$\{AMD_LABEL}",
+  "amd_confidence": "$\{AMD_CONFIDENCE}",
+  "amd_latency_ms": "$\{AMD_LATENCY_MS}",
+
+  "progress_ms": "$\{progress_ms}",
+  "early_media_ms": "$\{early_media_ms}",
+
+  "network_addr": "$\{network_addr}",
+  "read_codec": "$\{read_codec}",
+  "write_codec": "$\{write_codec}"
 }
-      ]]\>
-    </template>
+    ]]\></template>
   </templates>
 </configuration>
 \`\`\`
