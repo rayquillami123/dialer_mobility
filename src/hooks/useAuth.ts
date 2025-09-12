@@ -2,12 +2,27 @@
 'use client';
 
 import { useAuthStore } from '@/store/auth';
+import { decodeJwt } from '@/lib/jwt';
+
+let refreshTimer: any = null;
 
 export function useAuth() {
   const { user, accessToken, setSession, clear } = useAuthStore();
 
   const API = process.env.NEXT_PUBLIC_API || '';
   const TOKEN = accessToken;
+
+  function scheduleRefresh(token: string | null) {
+    if (refreshTimer) clearTimeout(refreshTimer);
+    if (!token) return;
+    const payload: any = decodeJwt(token);
+    if (!payload?.exp) return;
+    const msLeft = payload.exp * 1000 - Date.now();
+    const when = Math.max(0, msLeft - 60000); // 60s antes
+    refreshTimer = setTimeout(() => {
+      refresh().catch(() => {/* se reintentará en 401 por authedFetch */});
+    }, when);
+  }
 
   async function login(email:string, password:string) {
     const r = await fetch(`${API}/api/auth/login`, {
@@ -19,6 +34,7 @@ export function useAuth() {
     if (!r.ok) throw new Error('Credenciales inválidas');
     const data = await r.json();
     setSession(data.user, data.access_token);
+    scheduleRefresh(data.access_token);
   }
 
   async function refresh() {
@@ -29,13 +45,16 @@ export function useAuth() {
     if (!r.ok) throw new Error('No refresh');
     const data = await r.json();
     setSession(data.user, data.access_token);
+    scheduleRefresh(data.access_token);
   }
 
+  function clearTimers(){ if (refreshTimer) clearTimeout(refreshTimer); refreshTimer=null; }
   async function logout() {
     try {
       await fetch(`${API}/api/auth/logout`, { method:'POST', credentials:'include' });
     } finally {
       clear();
+      clearTimers();
     }
   }
 
@@ -58,6 +77,8 @@ export function useAuth() {
     const r = user?.roles || [];
     return roles.some(x => r.includes(x));
   }
+  
+  if (accessToken) scheduleRefresh(accessToken);
 
   return { user, accessToken: TOKEN, login, refresh, logout, authedFetch, hasRole };
 }
