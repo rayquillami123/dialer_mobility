@@ -24,6 +24,7 @@ import DIDHealth from '@/components/DIDHealth';
 import TopSipByDid from '@/components/TopSipByDid';
 import ProvidersHealth from '@/components/ProvidersHealth';
 import AbandonmentReport from '@/components/AbandonmentReport';
+import AbandonmentTrend from '@/components/AbandonmentTrend';
 
 /**
  * FRONTEND MVP – DIALER INTELIGENTE (FreeSWITCH backend)
@@ -852,6 +853,7 @@ function Reports({ allCalls, campaigns }: { allCalls: LiveCall[]; campaigns: Cam
 
   return (
     <div className="space-y-6">
+      <AbandonmentTrend />
       <AbandonmentReport />
       <Card>
         <CardHeader>
