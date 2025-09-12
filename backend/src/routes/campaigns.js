@@ -38,3 +38,31 @@ router.post('/:id/stop', async (req,res)=>{
   await db.query(`update campaigns set status='stopped', updated_at=now() where id=$1`, [id]);
   res.status(202).json({ ok:true });
 });
+
+// GET /api/campaigns/:id/autoprotect (estado en vivo)
+router.get('/:id/autoprotect', async (req, res) => {
+  const id = Number(req.params.id);
+  // Si quieres exponer el estado en memoria, puedes replicar la lógica mínima:
+  const row = await db.query('select * from campaigns where id=$1', [id]);
+  const c = row.rows?.[0];
+  if (!c) return res.status(404).json({ error: { message: 'not_found' } });
+
+  // Calcular on-demand (rápido)
+  const look = Number(c.auto_protect_lookback_min ?? 15);
+  const cap = Number(c.auto_protect_abandon_cap_pct ?? 3.0);
+
+  const q = `
+    WITH win AS (SELECT now() - interval '${look} minutes' AS start_ts)
+    SELECT
+      COUNT(*) FILTER (WHERE (raw->>'sip_code')='200')::int AS answered,
+      COUNT(*) FILTER (WHERE (raw->>'sip_code')='200' AND (raw->>'safe_harbor')::bool IS TRUE)::int AS abandoned
+    FROM cdr
+    WHERE received_at >= (SELECT start_ts FROM win)
+      AND (campaign_id = $1 OR (raw->>'X_CAMPAIGN')::int = $1)
+  `;
+  const r = await db.query(q, [id]);
+  const ans = Number(r.rows?.[0]?.answered || 0);
+  const abd = Number(r.rows?.[0]?.abandoned || 0);
+  const pct = ans ? Number(((abd/ans)*100).toFixed(2)) : 0;
+  res.json({ campaign_id: id, cap_pct: cap, window_min: look, answered: ans, abandoned: abd, abandonment_pct: pct });
+});

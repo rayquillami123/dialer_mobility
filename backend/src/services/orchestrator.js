@@ -1,7 +1,98 @@
-import { db } from '../server.js';
+
+import { db, ws } from '../server.js';
 import { numberToState, pickDidForState, canCallLeadToday } from './did_policy.js';
 import { getEslSocket } from './esl.js';
 import { computeDialRate } from '../lib/predictor.js';
+
+// --- Estado en memoria por campaña (autoprotección) ---
+const autoProtectState = new Map(); // campaignId -> {multiplier, status, lastDecisionAt}
+
+function nowMs(){ return Date.now(); }
+
+// Consulta % abandono en ventana (contestadas 200 OK con flag safe_harbor=true)
+async function getAbandonmentPct(campaignId, lookbackMin=15){
+  const q = `
+    WITH win AS (
+      SELECT now() - interval '${lookbackMin} minutes' AS start_ts
+    ),
+    answered AS (
+      SELECT COUNT(*) AS n
+      FROM cdr
+      WHERE received_at >= (SELECT start_ts FROM win)
+        AND (raw->>'sip_code') = '200'
+        AND (campaign_id = $1 OR (raw->>'X_CAMPAIGN')::int = $1)
+    ),
+    abandoned AS (
+      SELECT COUNT(*) AS n
+      FROM cdr
+      WHERE received_at >= (SELECT start_ts FROM win)
+        AND (raw->>'sip_code') = '200'
+        AND ((raw->>'safe_harbor')::bool IS TRUE)
+        AND (campaign_id = $1 OR (raw->>'X_CAMPAIGN')::int = $1)
+    )
+    SELECT
+      COALESCE((SELECT n FROM answered),0) AS answered,
+      COALESCE((SELECT n FROM abandoned),0) AS abandoned
+  `;
+  const r = await db.query(q, [campaignId]);
+  const ans = Number(r.rows?.[0]?.answered || 0);
+  const abd = Number(r.rows?.[0]?.abandoned || 0);
+  if (ans === 0) return 0;
+  return Number(((abd / ans) * 100).toFixed(2));
+}
+
+// Evalúa y actualiza el multiplicador de ritmo por campaña
+async function evaluateAutoProtection(campaign){
+  const id = campaign.id;
+  const enabled = campaign.auto_protect_enabled ?? true;
+  if (!enabled) {
+    const st = { multiplier: 1, status: 'disabled', lastDecisionAt: nowMs() };
+    autoProtectState.set(id, st);
+    return st;
+  }
+
+  const cap = Number(campaign.auto_protect_abandon_cap_pct ?? 3.0);
+  const look = Number(campaign.auto_protect_lookback_min ?? 15);
+  const reduce = Number(campaign.auto_protect_reduction ?? 0.7);
+  const minMul = Number(campaign.auto_protect_min_multiplier ?? 0.2);
+  const recoverStep = Number(campaign.auto_protect_recovery_step ?? 0.1);
+  const recoverThreshold = Number(campaign.auto_protect_recovery_threshold_pct ?? 2.0);
+
+  const prev = autoProtectState.get(id) || { multiplier: 1, status: 'ok', lastDecisionAt: 0 };
+  const pct = await getAbandonmentPct(id, look);
+
+  let multiplier = prev.multiplier;
+  let status = prev.status;
+
+  if (pct > cap) {
+    // recorta rápido
+    multiplier = Math.max(minMul, Number((multiplier * reduce).toFixed(2)));
+    status = 'throttled';
+  } else if (pct <= recoverThreshold) {
+    // recupera gradual con histéresis
+    multiplier = Math.min(1, Number((multiplier + recoverStep).toFixed(2)));
+    status = multiplier >= 0.999 ? 'ok' : 'recovering';
+  } else {
+    // entre umbrales: mantener
+    status = (multiplier < 1) ? 'holding' : 'ok';
+  }
+
+  const next = { multiplier, status, lastDecisionAt: nowMs(), pct };
+  autoProtectState.set(id, next);
+
+  // Notifica a la UI (opcional)
+  ws.broadcast({
+    type: 'campaign.autoprotect',
+    campaign_id: id,
+    pct,
+    cap,
+    multiplier,
+    status,
+    ts: Date.now()
+  });
+
+  return next;
+}
 
 // Cache para la salud de las troncales para no consultar en cada ciclo
 const trunkHealthCache = {
@@ -82,7 +173,10 @@ async function loop(campaignId){
     const campaign = s.rows[0];
     if (!campaign || campaign.status !== 'running') return;
     
-    const { pacing, max_channels, queue, trunk_policy } = campaign;
+    // --- AUTOPROTECCIÓN: evalúa y aplica multiplicador ---
+    const ap = await evaluateAutoProtection(campaign); // {multiplier, status, pct}
+    const basePacing = Math.max(1, Math.floor(Number(campaign.pacing)||2));
+    const effectivePacing = Math.max(1, Math.floor(basePacing * (ap.multiplier || 1)));
 
     // Buscar un batch pequeño (pacing) de leads elegibles
     const batch = await db.query(`
@@ -96,7 +190,7 @@ async function loop(campaignId){
         for update skip locked
       )
       select * from next
-    `, [Math.max(1, Math.floor(Number(pacing)||2))]);
+    `, [effectivePacing]);
 
     for (const lead of batch.rows){
       // 1. Cumplimiento de ventana horaria
@@ -139,7 +233,7 @@ async function loop(campaignId){
         `X_LEAD=${lead.lead_id}`,
         `X_TRUNK=${trunkId}`,
         `X_DID=${did.id}`,
-        `X_PBX_QUEUE=${queue || 'sales'}` // Cola en la PBX de destino
+        `X_PBX_QUEUE=${campaign.queue || 'sales'}` // Cola en la PBX de destino
       ].join(',');
 
       const dest = lead.phone.replace('+',''); // ajusta a tu gateway
