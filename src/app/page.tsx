@@ -20,6 +20,7 @@ import { useDialerWS } from '@/hooks/useDialerWS';
 import { useDialerStore } from '@/store/dialer';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Checkbox } from '@/components/ui/checkbox';
+import DIDHealth from '@/components/DIDHealth';
 
 /**
  * FRONTEND MVP – DIALER INTELIGENTE (FreeSWITCH backend)
@@ -891,14 +892,24 @@ type Health = {
 
 function ProvidersHealth() {
   const [health, setHealth] = useState<Health|null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  const API = process.env.NEXT_PUBLIC_API || '';
+  const TOKEN = process.env.NEXT_PUBLIC_API_TOKEN || '';
 
   useEffect(()=>{
-    const apiUrl = 'http://localhost:9003';
-    fetch(`${apiUrl}/api/providers/health?window=15m`).then(r=>r.json()).then(setHealth).catch((e) => {
+    fetch(`${API}/api/providers/health?window=15m`, {
+      headers: TOKEN ? { Authorization: `Bearer ${TOKEN}` } : undefined,
+    }).then(r=> {
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json();
+    }).then(setHealth).catch((e) => {
       console.error("Failed to fetch provider health:", e)
+      setError(e?.message || 'Error al cargar datos');
       setHealth(null)
-    });
-  },[]);
+    }).finally(() => setLoading(false));
+  },[API, TOKEN]);
 
   return (
     <Card>
@@ -906,36 +917,40 @@ function ProvidersHealth() {
         <CardTitle>Salud de Proveedores (últimos 15 minutos)</CardTitle>
       </CardHeader>
       <CardContent>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Troncal</TableHead>
-              <TableHead>ASR</TableHead>
-              <TableHead>PDD p50</TableHead>
-              <TableHead>PDD p90</TableHead>
-              <TableHead>4xx</TableHead>
-              <TableHead>5xx</TableHead>
-              <TableHead>486 Busy</TableHead>
-              <TableHead>403 Forbidden</TableHead>
-              <TableHead>404 Not Found</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {health?.items?.map((it: any, i: number)=>(
-              <TableRow key={i}>
-                <TableCell>{it.trunk_id ?? '—'}</TableCell>
-                <TableCell>{it.asr !== null ? (it.asr*100).toFixed(1)+'%' : '—'}</TableCell>
-                <TableCell>{it.p50_pdd_ms ?? '—'} ms</TableCell>
-                <TableCell>{it.p90_pdd_ms ?? '—'} ms</TableCell>
-                <TableCell>{it.c4xx ?? it.sip_mix?.['4xx'] ?? 0}</TableCell>
-                <TableCell>{it.c5xx ?? it.sip_mix?.['5xx'] ?? 0}</TableCell>
-                <TableCell>{it.busy_486 ?? it.sip_mix?.['486'] ?? 0}</TableCell>
-                <TableCell>{it.forb_403 ?? it.sip_mix?.['403'] ?? 0}</TableCell>
-                <TableCell>{it.notfound_404 ?? it.sip_mix?.['404'] ?? 0}</TableCell>
+         {loading && <p>Cargando salud de proveedores...</p>}
+        {error && <p className="text-red-500">Error: {error}</p>}
+        {health && (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Troncal</TableHead>
+                <TableHead>ASR</TableHead>
+                <TableHead>PDD p50</TableHead>
+                <TableHead>PDD p90</TableHead>
+                <TableHead>4xx</TableHead>
+                <TableHead>5xx</TableHead>
+                <TableHead>486 Busy</TableHead>
+                <TableHead>403 Forbidden</TableHead>
+                <TableHead>404 Not Found</TableHead>
               </TableRow>
-            )) || <TableRow><TableCell colSpan={9}>Sin datos</TableCell></TableRow>}
-          </TableBody>
-        </Table>
+            </TableHeader>
+            <TableBody>
+              {health?.items?.map((it: any, i: number)=>(
+                <TableRow key={i}>
+                  <TableCell>{it.trunk_id ?? '—'}</TableCell>
+                  <TableCell>{it.asr !== null ? (it.asr*100).toFixed(1)+'%' : '—'}</TableCell>
+                  <TableCell>{it.p50_pdd_ms ?? '—'} ms</TableCell>
+                  <TableCell>{it.p90_pdd_ms ?? '—'} ms</TableCell>
+                  <TableCell>{it.c4xx ?? it.sip_mix?.['4xx'] ?? 0}</TableCell>
+                  <TableCell>{it.c5xx ?? it.sip_mix?.['5xx'] ?? 0}</TableCell>
+                  <TableCell>{it.busy_486 ?? it.sip_mix?.['486'] ?? 0}</TableCell>
+                  <TableCell>{it.forb_403 ?? it.sip_mix?.['403'] ?? 0}</TableCell>
+                  <TableCell>{it.notfound_404 ?? it.sip_mix?.['404'] ?? 0}</TableCell>
+                </TableRow>
+              )) || <TableRow><TableCell colSpan={9}>Sin datos</TableCell></TableRow>}
+            </TableBody>
+          </Table>
+        )}
       </CardContent>
     </Card>
   )
@@ -961,6 +976,7 @@ function TrunksSettings({ trunks, setTrunks }: { trunks: Trunk[]; setTrunks: any
   return (
     <div className="space-y-6">
       <ProvidersHealth />
+      <DIDHealth />
       <Card className="shadow-sm">
         <CardHeader>
           <CardTitle>Troncales Configurados</CardTitle>
