@@ -1,0 +1,82 @@
+# k8s/10-backend.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dialer-backend
+  namespace: dialer
+spec:
+  replicas: 2
+  selector: { matchLabels: { app: dialer-backend } }
+  template:
+    metadata:
+      labels: { app: dialer-backend }
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/ORG/dialer-backend:latest
+          imagePullPolicy: Always
+          ports: [{ containerPort: 8080 }]
+          env:
+            - name: PORT
+              value: "8080"
+            - name: AUTOPROTECT_CAP_DEFAULT
+              value: "3"
+            - name: AUTOPROTECT_WINDOW_SEC
+              value: "120"
+            - name: AUTOPROTECT_RECOVERY_STEP
+              value: "0.05"
+            - name: AUTOPROTECT_MIN_MULTIPLIER
+              value: "0.15"
+          envFrom:
+            - secretRef: { name: backend-env }
+          readinessProbe:
+            httpGet: { path: /api/health, port: 8080 }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /api/health, port: 8080 }
+            initialDelaySeconds: 30
+            periodSeconds: 15
+          resources:
+            requests: { cpu: "250m", memory: "512Mi" }
+            limits:   { cpu: "1",    memory: "1Gi" }
+      terminationGracePeriodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dialer-backend
+  namespace: dialer
+spec:
+  selector: { app: dialer-backend }
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: dialer-backend-pdb
+  namespace: dialer
+spec:
+  minAvailable: 1
+  selector: { matchLabels: { app: dialer-backend } }
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: dialer-backend-hpa
+  namespace: dialer
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: dialer-backend
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: { type: Utilization, averageUtilization: 70 }

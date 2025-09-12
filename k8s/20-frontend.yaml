@@ -1,0 +1,40 @@
+# k8s/20-frontend.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dialer-frontend
+  namespace: dialer
+spec:
+  replicas: 2
+  selector: { matchLabels: { app: dialer-frontend } }
+  template:
+    metadata:
+      labels: { app: dialer-frontend }
+    spec:
+      containers:
+        - name: web
+          image: ghcr.io/ORG/dialer-frontend:latest
+          ports: [{ containerPort: 3000 }]
+          envFrom:
+            - configMapRef: { name: frontend-env }
+          readinessProbe:
+            httpGet: { path: /, port: 3000 }
+            initialDelaySeconds: 10
+          livenessProbe:
+            httpGet: { path: /, port: 3000 }
+            initialDelaySeconds: 30
+          resources:
+            requests: { cpu: "200m", memory: "256Mi" }
+            limits:   { cpu: "1",    memory: "512Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dialer-frontend
+  namespace: dialer
+spec:
+  selector: { app: dialer-frontend }
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000

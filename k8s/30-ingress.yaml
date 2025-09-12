@@ -1,0 +1,36 @@
+# k8s/30-ingress.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: dialer
+  namespace: dialer
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    # WS timeouts
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "75"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "75"
+    # Sticky (solo /ws)
+    nginx.ingress.kubernetes.io/affinity: "cookie"
+    nginx.ingress.kubernetes.io/session-cookie-name: "ws_affinity"
+    nginx.ingress.kubernetes.io/session-cookie-path: "/ws"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: [api.tudominio.com, app.tudominio.com]
+      secretName: tls-dialer
+  rules:
+    - host: api.tudominio.com
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend: { service: { name: dialer-backend, port: { number: 8080 } } }
+          - path: /ws
+            pathType: Prefix
+            backend: { service: { name: dialer-backend, port: { number: 8080 } } }
+    - host: app.tudominio.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend: { service: { name: dialer-frontend, port: { number: 3000 } } }
