@@ -13,6 +13,7 @@ router.post('/', async (req,res)=>{
     const campaign_id = raw.campaign_id || vars.X_CAMPAIGN;
     const list_id = raw.list_id || vars.X_LIST;
     const lead_id = raw.lead_id || vars.X_LEAD;
+    const tenant_id = vars.X_TENANT || null;
 
     // DID y troncal (de variables X_* si existen)
     const did_id = Number(vars.X_DID || raw.did_id || 0) || null;
@@ -38,9 +39,9 @@ router.post('/', async (req,res)=>{
 
     // Inserta CDR
     await db.query(`
-      insert into cdr(raw,campaign_id,list_id,lead_id,did_id,trunk_id,amd_label,amd_conf,billsec,duration)
-      values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-    `, [raw,campaign_id,list_id,lead_id,did_id,trunk_id,amd_label,amd_conf,billsec,duration]);
+      insert into cdr(raw,campaign_id,list_id,lead_id,did_id,trunk_id,amd_label,amd_conf,billsec,duration, tenant_id)
+      values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+    `, [raw,campaign_id,list_id,lead_id,did_id,trunk_id,amd_label,amd_conf,billsec,duration,tenant_id]);
 
     // ---- Métricas diarias por DID ----
     if (did_id) {

@@ -214,31 +214,32 @@ async function loop(campaignId){
       if (!did) continue;
 
       const cli = did.e164;
-      const trunkId = await getTrunkWithFailover(campaign);
-      if (!trunkId) {
+      const trunkName = await getTrunkWithFailover(campaign);
+      if (!trunkName) {
           console.error('[ORCH] No viable trunk found');
           continue;
       }
       
-      const trunkInfo = await db.query('SELECT id FROM trunks WHERE name = $1', [trunkId]);
+      const trunkInfo = await db.query('SELECT id FROM trunks WHERE name = $1', [trunkName]);
       const trunkDbId = trunkInfo.rows[0]?.id;
 
       // Construir originate
       const vars = [
         `origination_caller_id_number=${cli}`,
         `effective_caller_id_number=${cli}`,
-        `export_vars='X_CAMPAIGN,X_LIST,X_LEAD,X_TRUNK,X_DID,X_PBX_QUEUE'`,
+        `export_vars='X_TENANT,X_CAMPAIGN,X_LIST,X_LEAD,X_TRUNK,X_DID,X_QUEUE,AMD_LABEL'`,
+        `X_TENANT=${campaign.tenant_id}`,
         `X_CAMPAIGN=${campaignId}`,
         `X_LIST=${lead.list_id}`,
         `X_LEAD=${lead.lead_id}`,
-        `X_TRUNK=${trunkId}`,
+        `X_TRUNK=${trunkName}`,
         `X_DID=${did.id}`,
-        `X_PBX_QUEUE=${campaign.queue || 'sales'}` // Cola en la PBX de destino
+        `X_QUEUE=${campaign.queue_name || 'sales'}`
       ].join(',');
 
       const dest = lead.phone.replace('+',''); // ajusta a tu gateway
       // En lugar de &park(), transferimos a un dialplan que se encargará del ruteo AMD
-      const cmd = `originate {${vars}}sofia/gateway/${trunkId}/${dest} &transfer('dialer_amd_routing XML default')`;
+      const cmd = `originate {${vars}}sofia/gateway/${trunkName}/${dest} &transfer('dialer_amd_routing XML default')`;
 
       // Registrar intento
       await db.query(`insert into attempts(campaign_id, list_id, lead_id, did_id, trunk_id, dest_phone, state, result)

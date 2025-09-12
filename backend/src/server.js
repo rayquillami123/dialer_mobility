@@ -10,6 +10,7 @@ import { router as reports } from './routes/reports.js';
 import { router as providers } from './routes/providers.js';
 import { router as dids } from './routes/dids.js';
 import { eslInit } from './services/esl.js';
+import { router as recordings } from './routes/recordings.js';
 
 const app = express();
 app.use(cors());
@@ -39,6 +40,8 @@ app.use('/cdr', cdr);
 app.use('/api/reports', reports);
 app.use('/api/providers', providers);
 app.use('/api/dids', dids);
+app.use('/api/recordings', recordings);
+
 
 // WS
 const wss = new WebSocketServer({ noServer: true });
@@ -76,6 +79,8 @@ const esl = eslInit({ onEvent: (ev)=> {
     const t = setTimeout(async ()=>{
       try {
         ws.broadcast({ type:'call.update', uuid, state:'AbandonedSafeHarbor', ts:Date.now() });
+        // Marcar la variable para que el CDR refleje el abandono
+        await esl.api(`uuid_setvar ${uuid} safe_harbor true`);
         // Reproduce mensaje y corta (ajusta la ruta del prompt según tus audios)
         await esl.api(`uuid_broadcast ${uuid} playback:ivr/ivr-you_will_be_called_again.wav both`);
         setTimeout(()=> esl.api(`uuid_kill ${uuid}`), 1500);
@@ -87,10 +92,17 @@ const esl = eslInit({ onEvent: (ev)=> {
   }
 
   if (name === 'CHANNEL_BRIDGE') {
-    // Se asignó a agente → cancelar Safe Harbor
+    // Se asignó a agente → cancelar Safe Harbor y empezar a grabar
     const t = activeCallTimers.get(uuid);
     if (t) { clearTimeout(t); activeCallTimers.delete(uuid); }
     ws.broadcast({ type:'call.update', uuid, state:'Bridged', ts:Date.now() });
+
+    const recDir = process.env.REC_DIR || '/var/recordings';
+    const ts = new Date().toISOString().replace(/[:.]/g,'-');
+    const recFile = `${recDir}/${ts}_${uuid}.wav`;
+    esl.api(`uuid_setvar ${uuid} recording_path '${recFile}'`);
+    esl.api(`uuid_record ${uuid} start ${recFile}`);
+    ws.broadcast({ type:'call.update', uuid, recording:recFile });
   } else if (name === 'CHANNEL_EXECUTE_COMPLETE' && ev['Application'] === 'transfer') {
     // La llamada se conectó a la PBX, cancela el timer de abandono
     if (activeCallTimers.has(uuid)) {
@@ -100,9 +112,10 @@ const esl = eslInit({ onEvent: (ev)=> {
   }
 
   if (name === 'CHANNEL_HANGUP_COMPLETE') {
-    // Limpieza de timers
+    // Limpieza de timers y detener grabación
     const t = activeCallTimers.get(uuid);
     if (t) { clearTimeout(t); activeCallTimers.delete(uuid); }
+    esl.api(`uuid_record ${uuid} stop`);
     ws.broadcast({ type:'call.update', uuid, state:'Hangup', ts:Date.now(), billsec: Number(ev['variable_billsec']||0) });
   }
 }});

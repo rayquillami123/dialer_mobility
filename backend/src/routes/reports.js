@@ -1,3 +1,4 @@
+
 import express from 'express';
 import { db } from '../server.js';
 export const router = express.Router();
@@ -129,4 +130,17 @@ router.get('/abandonment/timeseries', async (req, res) => {
     console.error('abandonment timeseries error', e);
     res.status(500).json({ error: { message: 'internal_error' } });
   }
+});
+
+
+router.get('/agg_campaign_day', async (req, res) => {
+    try {
+        // Basic query for now, can be expanded with filters
+        const q = `SELECT * FROM agg_campaign_day ORDER BY day DESC, campaign_id LIMIT 100;`;
+        const r = await db.query(q);
+        res.json({ items: r.rows });
+    } catch (e) {
+        console.error('agg_campaign_day error', e);
+        res.status(500).json({ error: { message: 'internal_error' } });
+    }
 });
