@@ -193,3 +193,39 @@ Esta sección describe las siguientes mejoras estratégicas para evolucionar la 
 -   **Facturación y Uso**: Implementar un sistema de tracking de uso (minutos, llamadas, almacenamiento) por tenant. Exponer estos datos a través de webhooks para integrar con sistemas de facturación como Stripe.
 -   **Auditoría Centralizada**: Crear un "sink" para enviar los `audit_log` a un sistema SIEM (Security Information and Event Management) y definir políticas de retención diferenciadas.
 -   **Chaos Drills**: Realizar simulacros semestrales ("game days") para probar la resiliencia del sistema: forzar la caída de un proveedor SIP, simular un pico de abandono para verificar la Auto-Protección, o cortar la conexión WebSocket para probar la reconexión.
+
+## Blueprint para Alta Capacidad (2.000+ Canales)
+
+Esta sección detalla la arquitectura, el dimensionamiento y el tuning necesarios para escalar la plataforma a 2.000 canales simultáneos de manera estable y resiliente.
+
+### 1. Arquitectura de Alta Capacidad (2.000 ch)
+- **Capas Clave**:
+    - **SBC de Borde (Kamailio/OpenSIPS)**: Protege contra DoS, gestiona NAT, oculta la topología, limita la tasa por proveedor/inquilino y balancea la carga SIP.
+    - **Anclaje de Media (RTPengine)**: Fija el flujo RTP para un NAT limpio, soporta SRTP y puede duplicar el audio para análisis externo (AMD avanzado).
+    - **Nodos de Media (FreeSWITCH)**: Cluster de 3 a 6 nodos que ejecutan la lógica de IVR/AMD y transfieren las llamadas. Son escalables horizontalmente.
+    - **Orquestador (Backend Node.js)**: Distribuye la carga (campañas, canales) entre los nodos de FreeSWITCH según su salud, carga y el CPS del carrier.
+    - **Base de Datos (Postgres HA)**: Con particiones por día para tablas de alto volumen (CDR, attempts) e índices optimizados.
+    - **Almacenamiento de Grabaciones (S3/NFS)**: Externalizado para evitar cuellos de botella de I/O en los nodos de media.
+
+### 2. Dimensionamiento Rápido
+- **Ancho de Banda**: 2.000 canales en G.711 requieren ~400 Mbps sostenidos. El uso de Opus puede reducirlo en un 70%.
+- **CPU por Nodo FS**: 16-24 vCPU a 3+ GHz son suficientes si no hay transcodificación pesada.
+- **Red**: Enlaces de 10GbE son recomendados, con VLANs separadas para señalización (SIP) y media (RTP), marcando el tráfico con QoS (DSCP).
+
+### 3. Tuning de SO y Red (Nodos de Media)
+- **Kernel (`sysctl.conf`)**: Aumentar los buffers de sockets UDP (`rmem_max`, `wmem_max`), el backlog de red y el rango de puertos locales.
+- **Límites de Usuario (`ulimit`)**: Incrementar el número máximo de archivos abiertos (`LimitNOFILE`) a más de 1 millón para el servicio de FreeSWITCH.
+- **NIC**: Desactivar `LRO/GRO` para minimizar la latencia en el procesamiento de paquetes RTP.
+
+### 4. Tuning de FreeSWITCH
+- **Perfiles SIP**: Limitar los codecs a los estrictamente necesarios (`passthrough`), habilitar `early-media` y `disable-transcoding`.
+- **RTP (`vars.xml`)**: Definir un rango de puertos amplio (ej. 30000-40000) y activar un jitter buffer moderado solo si es necesario.
+
+### 5. Orquestación y Pruebas de Carga
+- **Orquestador Avanzado**: Debe gestionar CPS por troncal, recibir "backpressure" de los nodos sobrecargados y usar un scheduler adaptativo basado en la profundidad de la cola de agentes.
+- **Pruebas de Carga (SIPp + RTPengine)**:
+    - **Rampa de Carga**: Incrementar gradualmente hasta 500 CPS y mantener durante 30 minutos.
+    - **KPIs de Éxito**: Pérdida de paquetes RTP < 0.2%, Jitter < 20 ms, PDD < 2.5s, CPU < 70%.
+    - **Pruebas de Failover**: Simular la caída de un nodo FS y verificar que el sistema sigue operando sin pérdida de llamadas nuevas.
+
+Este blueprint asegura que la plataforma no solo funcione bajo carga, sino que lo haga de manera predecible, estable y resiliente.
