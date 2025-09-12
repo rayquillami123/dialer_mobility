@@ -6,6 +6,7 @@ import { Pool } from 'pg';
 import 'dotenv/config';
 import { router as campaignsRouter } from './routes/campaigns.js';
 import { router as cdrRouter } from './routes/cdr.js';
+import { router as reportsRouter } from './routes/reports.js';
 
 const app = express();
 const server = http.createServer(app);
@@ -26,6 +27,7 @@ app.use(express.json());
 
 // API Routes
 app.use('/api/campaigns', campaignsRouter);
+app.use('/api/reports', reportsRouter);
 app.use('/cdr', cdrRouter);
 
 
