@@ -1,9 +1,4 @@
-
-// src/services/esl.js
 import net from 'net';
-import 'dotenv/config';
-
-const { FS_ESL_HOST, FS_ESL_PORT, FS_ESL_PASSWORD } = process.env;
 
 let eslSocket = null;
 let reconnectTimer = null;
@@ -12,15 +7,21 @@ const eventHandlers = [];
 function connect() {
   if (reconnectTimer) clearTimeout(reconnectTimer);
   
-  console.log(`Connecting to FreeSWITCH ESL at ${FS_ESL_HOST}:${FS_ESL_PORT}...`);
-  eslSocket = net.createConnection({ host: FS_ESL_HOST, port: FS_ESL_PORT });
+  const host = process.env.FS_ESL_HOST || '127.0.0.1';
+  const port = Number(process.env.FS_ESL_PORT || 8021);
+  const pass = process.env.FS_ESL_PASSWORD || 'ClueCon';
+
+  console.log(`Connecting to FreeSWITCH ESL at ${host}:${port}...`);
+  eslSocket = net.createConnection({ host, port });
+  eslSocket.setEncoding('utf8');
 
   eslSocket.on('data', (data) => {
     const s = data.toString();
     if (s.includes('auth/request')) {
       console.log('ESL authentication requested.');
-      eslSocket.write(`auth ${FS_ESL_PASSWORD}\n\n`);
-      eslSocket.write('event json ALL\n\n'); // O suscríbete a eventos específicos
+      eslSocket.write(`auth ${pass}\n\n`);
+      // Añadimos CHANNEL_BRIDGE para cancelar timers Safe Harbor y otros eventos.
+      eslSocket.write('event json CHANNEL_CREATE CHANNEL_ANSWER CHANNEL_BRIDGE CHANNEL_HANGUP_COMPLETE CHANNEL_EXECUTE_COMPLETE CUSTOM callcenter::info\n\n');
     } else if (s.includes('Content-Type: text/event-json')) {
       try {
         const jsonBody = s.substring(s.indexOf('{'));
@@ -47,15 +48,30 @@ function connect() {
   });
 }
 
-export function eslInit({ onEvent }) {
-  if (onEvent) {
+function api(cmd) {
+  return new Promise((resolve, reject) => {
+    if (!eslSocket || !eslSocket.writable) {
+      return reject(new Error('ESL socket not connected or writable.'));
+    }
+    const toSend = `api ${cmd}\n\n`;
+    eslSocket.write(toSend, (err) => {
+      if (err) return reject(err);
+      resolve(true);
+    });
+  });
+}
+
+export function eslInit({ onEvent } = {}) {
+  if (onEvent && !eventHandlers.includes(onEvent)) {
     eventHandlers.push(onEvent);
   }
   if (!eslSocket) {
     connect();
   }
+
+  return { api };
 }
 
 export function getEslSocket() {
-  return eslSocket;
+    return { eslSocket, api };
 }

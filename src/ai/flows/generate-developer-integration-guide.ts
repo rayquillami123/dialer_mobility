@@ -171,6 +171,31 @@ Your task is to take the following comprehensive technical blueprint and market 
 </configuration>
 \`\`\`
 
+## Operación en Producción: Cumplimiento, Ventanas y Failover
+
+### Safe Harbor (TSR/FCC)
+- **Regla**: si no hay agente ≤ 2s tras ANSWER, reproducir mensaje informativo y finalizar.
+- **Implementación**: timers en backend (\`SAFE_HARBOR_MS\`), escucha de \`CHANNEL_ANSWER\` y cancelación con \`CHANNEL_BRIDGE\`.
+- **Audio**: \`ivr/ivr-you_will_be_called_again.wav\` (ajustar ruta según instalación).
+
+### Ventanas de Marcación
+- **Tabla**: \`call_windows(state, tz, start_local, end_local, active)\`.
+- **Validación**: antes de \`originate\` con \`(now() at time zone tz)::time between start_local and end_local\`.
+- **Editor UI**: en “Agendador” (CRUD por estado/TZ).
+
+### Salud y Failover de Proveedores
+- **Cálculo**: de ASR y 5xx en ventana de 15 minutos a partir de CDR.
+- **Penalización**: de peso si \`ASR < 0.20\` o \`5xx > 20\`; elección ponderada del gateway.
+- **Endpoint de apoyo**: \`/api/providers/health?window=15m\` (ASR, PDD p50/p90, SIP mix).
+
+### Usabilidad y Reputación de DIDs
+- **Caps**: diarios por DID (\`did_usage\`) y rotación por estado/NPA (local presence).
+- **Métrica**: de \`unique_numbers\` y flags de reputación (403/404/SIT altos → bajar score).
+
+### Observabilidad (SIP)
+- **JSON CDR**: debe incluir: \`sip_code\`, \`sip_disposition\`, \`sip_term_status\`, \`progress_msec\`, \`progress_media_msec\`, \`fs_hangup_cause\`.
+- **Reportes**: ASR, PDD p50/p90 y “SIP mix” por troncal y por DID.
+
 **6. Go-Live & Production Checklist (P0)**
    **1. Database Setup:**
      - Run \`psql -d dialer -f sql/schema.sql\` & \`sql/sample_data.sql\`.
