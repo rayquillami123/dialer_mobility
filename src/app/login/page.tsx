@@ -2,11 +2,13 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
+import { Card, CardHeader, CardTitle, CardContent, CardFooter } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/useAuth';
+import PasswordInput from '@/components/PasswordInput';
 
 export default function LoginPage(){
   const { login } = useAuth();
@@ -48,8 +50,7 @@ export default function LoginPage(){
               />
             </div>
             <div>
-              <Input
-                type="password"
+              <PasswordInput
                 placeholder="••••••••"
                 value={pass}
                 onChange={(e)=>setPass(e.target.value)}
@@ -62,6 +63,11 @@ export default function LoginPage(){
             </Button>
           </form>
         </CardContent>
+        <CardFooter className="text-center text-sm">
+          <Link href="/forgot-password" className="w-full text-blue-600 hover:underline">
+            ¿Olvidaste tu contraseña?
+          </Link>
+        </CardFooter>
       </Card>
     </div>
   );
