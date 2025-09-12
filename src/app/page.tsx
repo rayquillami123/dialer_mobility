@@ -22,6 +22,8 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Checkbox } from '@/components/ui/checkbox';
 import DIDHealth from '@/components/DIDHealth';
 import TopSipByDid from '@/components/TopSipByDid';
+import ProvidersHealth from '@/components/ProvidersHealth';
+import AbandonmentReport from '@/components/AbandonmentReport';
 
 /**
  * FRONTEND MVP – DIALER INTELIGENTE (FreeSWITCH backend)
@@ -849,113 +851,43 @@ function Reports({ allCalls, campaigns }: { allCalls: LiveCall[]; campaigns: Cam
   }, [from, to, campaignId, allCalls]);
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-end gap-3">
-        <div>
-          <Label>Desde</Label>
-          <Input type="datetime-local" value={from} onChange={e=>setFrom(e.target.value)} />
-        </div>
-        <div>
-          <Label>Hasta</Label>
-          <Input type="datetime-local" value={to} onChange={e=>setTo(e.target.value)} />
-        </div>
-        <div className="min-w-[240px]">
-          <Label>Campaña</Label>
-          <Select value={campaignId} onValueChange={(v:any)=>setCampaignId(v)}>
-            <SelectTrigger><SelectValue/></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todas</SelectItem>
-              {campaigns.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </div>
-        <Button className="ml-auto" onClick={() => downloadCSV('cdr.csv', rows)}>Exportar CSV</Button>
-      </div>
-
-      <LiveTable rows={rows}/>
+    <div className="space-y-6">
+      <AbandonmentReport />
+      <Card>
+        <CardHeader>
+          <CardTitle>Registro de Llamadas (CDR)</CardTitle>
+          <CardDescription>Filtra y exporta el detalle de llamadas. Los datos provienen del stream en vivo.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-end gap-3">
+            <div>
+              <Label>Desde</Label>
+              <Input type="datetime-local" value={from} onChange={e=>setFrom(e.target.value)} />
+            </div>
+            <div>
+              <Label>Hasta</Label>
+              <Input type="datetime-local" value={to} onChange={e=>setTo(e.target.value)} />
+            </div>
+            <div className="min-w-[240px]">
+              <Label>Campaña</Label>
+              <Select value={campaignId} onValueChange={(v:any)=>setCampaignId(v)}>
+                <SelectTrigger><SelectValue/></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas</SelectItem>
+                  {campaigns.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <Button className="ml-auto" onClick={() => downloadCSV('cdr.csv', rows)}>Exportar CSV</Button>
+          </div>
+          <LiveTable rows={rows}/>
+        </CardContent>
+      </Card>
     </div>
   );
 }
 
 // -------------------------- Ajustes (Troncales/Proveedores) --------------------------
-
-type Health = {
-  window: string;
-  items: Array<{
-    trunk_id: number|null;
-    asr: number|null;
-    p50_pdd_ms: number|null;
-    p90_pdd_ms: number|null;
-    c4xx: number; c5xx: number; busy_486: number; forb_403: number; notfound_404: number;
-    sip_mix?: any;
-  }>;
-};
-
-function ProvidersHealth() {
-  const [health, setHealth] = useState<Health|null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-
-  const API = process.env.NEXT_PUBLIC_API || '';
-  const TOKEN = process.env.NEXT_PUBLIC_API_TOKEN || '';
-
-  useEffect(()=>{
-    fetch(`${API}/api/providers/health?window=15m`, {
-      headers: TOKEN ? { Authorization: `Bearer ${TOKEN}` } : undefined,
-    }).then(r=> {
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      return r.json();
-    }).then(setHealth).catch((e) => {
-      console.error("Failed to fetch provider health:", e)
-      setError(e?.message || 'Error al cargar datos');
-      setHealth(null)
-    }).finally(() => setLoading(false));
-  },[API, TOKEN]);
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Salud de Proveedores (últimos 15 minutos)</CardTitle>
-      </CardHeader>
-      <CardContent>
-         {loading && <p>Cargando salud de proveedores...</p>}
-        {error && <p className="text-red-500">Error: {error}</p>}
-        {health && (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Troncal</TableHead>
-                <TableHead>ASR</TableHead>
-                <TableHead>PDD p50</TableHead>
-                <TableHead>PDD p90</TableHead>
-                <TableHead>4xx</TableHead>
-                <TableHead>5xx</TableHead>
-                <TableHead>486 Busy</TableHead>
-                <TableHead>403 Forbidden</TableHead>
-                <TableHead>404 Not Found</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {health?.items?.map((it: any, i: number)=>(
-                <TableRow key={i}>
-                  <TableCell>{it.trunk_id ?? '—'}</TableCell>
-                  <TableCell>{it.asr !== null ? (it.asr*100).toFixed(1)+'%' : '—'}</TableCell>
-                  <TableCell>{it.p50_pdd_ms ?? '—'} ms</TableCell>
-                  <TableCell>{it.p90_pdd_ms ?? '—'} ms</TableCell>
-                  <TableCell>{it.c4xx ?? it.sip_mix?.['4xx'] ?? 0}</TableCell>
-                  <TableCell>{it.c5xx ?? it.sip_mix?.['5xx'] ?? 0}</TableCell>
-                  <TableCell>{it.busy_486 ?? it.sip_mix?.['486'] ?? 0}</TableCell>
-                  <TableCell>{it.forb_403 ?? it.sip_mix?.['403'] ?? 0}</TableCell>
-                  <TableCell>{it.notfound_404 ?? it.sip_mix?.['404'] ?? 0}</TableCell>
-                </TableRow>
-              )) || <TableRow><TableCell colSpan={9}>Sin datos</TableCell></TableRow>}
-            </TableBody>
-          </Table>
-        )}
-      </CardContent>
-    </Card>
-  )
-}
 
 function TrunksSettings({ trunks, setTrunks }: { trunks: Trunk[]; setTrunks: any }) {
   const [name, setName] = useState('US-CLI-BACKUP');
