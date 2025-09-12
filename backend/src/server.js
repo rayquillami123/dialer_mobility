@@ -98,6 +98,15 @@ wss.on('connection', (ws, req) => {
     ws.user = { id: Number(payload.sub), tenant_id: Number(payload.tenant_id), roles: payload.roles || [] };
     addSocket(ws.user.tenant_id, ws);
 
+    ws.on('message', (raw) => {
+      try {
+        const msg = JSON.parse(String(raw));
+        if (msg?.type === 'ping') {
+          ws.send(JSON.stringify({ type: 'pong', ts: Date.now() }));
+        }
+      } catch { /* ignorar */ }
+    });
+
     ws.send(JSON.stringify({ type: 'ws.hello', ts: Date.now(), tenant_id: ws.user.tenant_id }));
   } catch (e) {
     try { ws.close(4003, 'unauthorized'); } catch {}

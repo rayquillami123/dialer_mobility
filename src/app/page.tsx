@@ -33,6 +33,7 @@ import GlobalAlertBar from '@/components/GlobalAlertBar';
 import RequireRole from '@/components/RequireRole';
 import { useAuth } from '@/hooks/useAuth';
 import UsersPage from './admin/users/page';
+import SessionStatusBadge from '@/components/SessionStatusBadge';
 
 /**
  * FRONTEND MVP – DIALER INTELIGENTE (FreeSWITCH backend)
@@ -211,8 +212,6 @@ function DialerInteligenteMain() {
     { id: '2', name: 'Fin de Semana (10am-4pm PT)', details: 'S-D, 10am-4pm en zona horaria del Pacífico' },
   ]);
   
-  const { logout } = useAuth();
-  
   const { onKpi, onCall, onAgent, onQueue } = useDialerStore();
 
   useDialerWS((data) => {
@@ -242,7 +241,7 @@ function DialerInteligenteMain() {
             <Button size="sm" onClick={() => setActive('campaigns')}>
               <Plus className="mr-2 h-4 w-4"/> Nueva campaña
             </Button>
-            <Button variant="ghost" size="sm" onClick={logout}>Logout</Button>
+            <SessionStatusBadge />
           </div>
         </div>
       </header>
