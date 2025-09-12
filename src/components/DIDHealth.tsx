@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
@@ -15,7 +16,7 @@ type DidHealthItem = {
   state: string | null;
   daily_cap: number | null;
   score: number | null;
-  calls_today: number | null;
+  calls_total: number | null;
   unique_numbers: number | null;
   human: number | null;
   voicemail: number | null;
@@ -24,11 +25,12 @@ type DidHealthItem = {
   reached_cap: boolean | null;
 };
 
+type ApiResponse = { items: DidHealthItem[] };
 
 type SortKey =
   | 'e164'
   | 'state'
-  | 'calls_today'
+  | 'calls_total'
   | 'unique_numbers'
   | 'human'
   | 'voicemail'
@@ -58,8 +60,8 @@ export default function DIDHealth() {
         cache: 'no-store',
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const data: { items: DidHealthItem[] } = await r.json();
-      setItems(Array.isArray(data) ? data : (data.items || []));
+      const data: ApiResponse = await r.json();
+      setItems(Array.isArray(data.items) ? data.items : []);
     } catch (e: any) {
       setError(e?.message || 'Error al cargar datos');
     } finally {
@@ -96,8 +98,8 @@ export default function DIDHealth() {
             return x.e164 || '';
           case 'state':
             return x.state || '';
-          case 'calls_today':
-            return x.calls_today ?? -1;
+          case 'calls_total':
+            return x.calls_total ?? -1;
           case 'unique_numbers':
             return x.unique_numbers ?? -1;
           case 'human':
@@ -132,7 +134,7 @@ export default function DIDHealth() {
   }, [filtered, sortKey, sortDir]);
 
   function utilization(it: DidHealthItem): number {
-    const total = Number(it.calls_today ?? 0);
+    const total = Number(it.calls_total ?? 0);
     const cap = Number(it.daily_cap ?? 0);
     if (!cap || cap <= 0) return 0;
     return Math.min(1, total / cap);
@@ -193,7 +195,7 @@ export default function DIDHealth() {
       ...sorted.map((it) => [
         it.e164,
         it.state || '',
-        String(it.calls_today ?? 0),
+        String(it.calls_total ?? 0),
         String(it.unique_numbers ?? 0),
         String(it.human ?? 0),
         String(it.voicemail ?? 0),
@@ -278,7 +280,7 @@ export default function DIDHealth() {
                 <TableRow>
                   <TableHead className="whitespace-nowrap">{headerCell('DID', 'e164')}</TableHead>
                   <TableHead className="whitespace-nowrap">{headerCell('Estado', 'state')}</TableHead>
-                  <TableHead className="whitespace-nowrap">{headerCell('Llamadas', 'calls_today')}</TableHead>
+                  <TableHead className="whitespace-nowrap">{headerCell('Llamadas', 'calls_total')}</TableHead>
                   <TableHead className="whitespace-nowrap">{headerCell('Únicos', 'unique_numbers')}</TableHead>
                   <TableHead className="whitespace-nowrap">{headerCell('Human', 'human')}</TableHead>
                   <TableHead className="whitespace-nowrap">{headerCell('Voicemail', 'voicemail')}</TableHead>
@@ -299,7 +301,7 @@ export default function DIDHealth() {
                     <TableRow key={it.id}>
                       <TableCell className="font-mono">{it.e164}</TableCell>
                       <TableCell>{it.state || '—'}</TableCell>
-                      <TableCell>{it.calls_today ?? 0}</TableCell>
+                      <TableCell>{it.calls_total ?? 0}</TableCell>
                       <TableCell>{it.unique_numbers ?? 0}</TableCell>
                       <TableCell>{it.human ?? 0}</TableCell>
                       <TableCell>{it.voicemail ?? 0}</TableCell>
