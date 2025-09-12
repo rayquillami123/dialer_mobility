@@ -26,6 +26,7 @@ import ProvidersHealth from '@/components/ProvidersHealth';
 import AbandonmentReport from '@/components/AbandonmentReport';
 import AbandonmentTrend from '@/components/AbandonmentTrend';
 import DashboardAutoProtect from '@/components/DashboardAutoProtect';
+import DashboardAutoProtectSummary from '@/components/DashboardAutoProtectSummary';
 
 /**
  * FRONTEND MVP – DIALER INTELIGENTE (FreeSWITCH backend)
@@ -306,6 +307,7 @@ function Dashboard({ campaigns }: { campaigns: Campaign[] }) {
         <Stat title="Abandono (60s)" value={kpi ? (kpi.abandon60s * 100).toFixed(2) + '%' : '...'} icon={Activity}/>
       </div>
       
+      <DashboardAutoProtectSummary />
       <DashboardAutoProtect
         campaignIds={runningCampaignIds}
         campaignLabels={campaignMap}
