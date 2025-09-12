@@ -179,6 +179,7 @@ Your task is to take the following comprehensive technical blueprint for a profe
     <param name="listen-port" value="8021"/>
     <param name="password" value="CAMBIA_ESTA_CLAVE_SUPER_SECRETA"/>
     <param name="apply-inbound-acl" value="loopback.auto"/>
+    <param name="stop-on-bind-error" value="true"/>
   </settings>
 </configuration>
 \`\`\`
