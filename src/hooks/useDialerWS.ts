@@ -18,7 +18,9 @@ export function useDialerWS(url: string) {
       }
     };
     ws.onopen = () => console.log("WebSocket connected");
-    ws.onerror = (err) => console.error("WebSocket error:", err);
+    ws.onerror = (event) => {
+      console.error("WebSocket error:", "Connection failed. Check the browser's Network tab for more details.", event);
+    };
     ws.onclose = () => console.log("WebSocket disconnected");
     
     return () => ws.close();
