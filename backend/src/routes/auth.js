@@ -22,11 +22,11 @@ function signRefresh(user){
   return jwt.sign({ sub: String(user.id) }, process.env.JWT_REFRESH_SECRET || 'dev', { expiresIn: `${days}d` });
 }
 function setRefreshCookie(res, token){
-  const secure = String(process.env.COOKIE_SECURE||'false') === 'true';
+  const secure = String(process.env.COOKIE_SECURE||'true') === 'true';
   res.cookie('rt', token, {
     httpOnly: true,
     secure,
-    sameSite: 'lax',
+    sameSite: secure ? 'none' : 'lax',
     path: '/api/auth/refresh',
     maxAge: Number(process.env.JWT_REFRESH_TTL_DAYS || 7) * 24*60*60*1000,
   });

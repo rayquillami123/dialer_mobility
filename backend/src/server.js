@@ -23,6 +23,7 @@ import promBundle from 'express-prom-bundle';
 import { loginLimiter, apiLimiter } from './mw/ratelimit.js';
 import { audit } from './mw/audit.js';
 import { wsConnections } from './metrics/custom.js';
+import makeBootstrapRouter from "./routes/auth_bootstrap.js";
 
 const app = express();
 const metrics = promBundle({
@@ -34,15 +35,25 @@ const metrics = promBundle({
 });
 app.use(metrics);
 
+const ALLOWED_ORIGINS = (process.env.CORS_ORIGIN || 'http://localhost:3000,http://localhost:9002').split(',');
+if (process.env.NODE_ENV === 'development' || process.env.FIREBASE_DEBUG) {
+  ALLOWED_ORIGINS.push('https://studio.firebase.google.com');
+}
+
 app.use(cors({
-  origin: process.env.CORS_ORIGIN?.split(',') || true,
+  origin: (origin, cb) => {
+    if (!origin || ALLOWED_ORIGINS.includes(origin)) {
+      cb(null, true);
+    } else {
+      cb(new Error(`Origin ${origin} not allowed by CORS`));
+    }
+  },
   credentials: true,
 }));
+
 app.use(cookieParser());
 app.use(express.json({ limit: '2mb' }));
-app.use(audit(db));
-app.use('/api/auth/login', loginLimiter);
-app.use('/api/', apiLimiter);
+
 
 // (Opcional) servir descargables si defines DOWNLOADS_DIR
 if (process.env.DOWNLOADS_DIR) {
@@ -52,13 +63,20 @@ if (process.env.DOWNLOADS_DIR) {
 // DB
 export const db = new Pool();
 
+app.use(audit(db));
+app.use('/api/auth/login', loginLimiter);
+app.use('/api/', apiLimiter);
+
+// RUTA PÚBLICA SÓLO PARA BOOTSTRAP
+app.use("/api/auth", makeBootstrapRouter(db));
+
 // Auth Bearer simple (excepto /cdr que idealmente aseguras por IP/Nginx)
 app.use(bearerOrApiKey);
 app.use(authenticate(db));
 
 
 // Rutas
-app.get('/health', (_req,res)=>res.json({ ok:true, ts:Date.now() }));
+app.get('/api/health', (_req,res)=>res.json({ ok:true, ts:Date.now() }));
 app.use('/api/auth', auth);
 app.use('/api/campaigns', campaigns);
 app.use('/api/users', users);
