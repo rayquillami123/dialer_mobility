@@ -1,0 +1,17 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: dialer-freeswitch
+spec:
+  podSelector:
+    matchLabels: { app: dialer-freeswitch }
+  policyTypes: ["Ingress","Egress"]
+  ingress:
+    - from:
+        - namespaceSelector: {}   # tráfico SIP/RTP externo entra por hostNetwork (no aplica)
+        - podSelector:
+            matchLabels: { app: dialer-backend }  # ESL desde backend
+      ports:
+        - { protocol: TCP, port: 8021 }
+  egress:
+    - {}   # permite egress; si deseas, limita a carriers/SBC por CIDR con ipBlock

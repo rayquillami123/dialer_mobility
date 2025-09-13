@@ -1,0 +1,51 @@
+{{- if .Values.sysctl.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dialer-sysctl
+data:
+  99-voip.conf: |
+{{- range $k, $v := .Values.sysctl.params }}
+    {{ $k }} = {{ $v }}
+{{- end }}
+
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: dialer-sysctl
+  labels: { app: dialer-sysctl }
+spec:
+  selector: { matchLabels: { app: dialer-sysctl } }
+  template:
+    metadata:
+      labels: { app: dialer-sysctl }
+    spec:
+      hostPID: true
+      hostNetwork: true
+      nodeSelector:
+        {{- toYaml (.Values.sysctl.nodeSelector | default dict) | nindent 8 }}
+      tolerations:
+        {{- toYaml (.Values.sysctl.tolerations | default list) | nindent 8 }}
+      containers:
+      - name: sysctl
+        image: {{ .Values.sysctl.image }}
+        securityContext:
+          privileged: true
+          allowPrivilegeEscalation: true
+        volumeMounts:
+          - name: sysctl
+            mountPath: /etc/sysctl.d/99-voip.conf
+            subPath: 99-voip.conf
+        command: ["/bin/sh","-lc"]
+        args:
+          - |
+            set -e
+            sysctl -p /etc/sysctl.d/99-voip.conf || true
+            # reaplicar en reboot del contenedor/nodo
+            while true; do sleep 3600; done
+      volumes:
+        - name: sysctl
+          configMap:
+            name: dialer-sysctl
+{{- end }}

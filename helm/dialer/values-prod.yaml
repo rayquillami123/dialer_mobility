@@ -88,9 +88,42 @@ hpa:
 # ---------- ExternalSecrets (opcional) ----------
 # Ejemplo conceptual (no se renderiza aquí): mantén secretos JWT/DB en tu gestor
 externalsecrets:
-  enabled: false
-  provider: aws-secrets-manager
-  jwtAccessKey: "/dialer/prod/jwt_access"
-  jwtRefreshKey: "/dialer/prod/jwt_refresh"
-  databaseUrlKey: "/dialer/prod/database_url"
-  cdrTokenKey: "/dialer/prod/cdr_token"
+  enabled: true
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: dialer-secrets-store
+  targetSecretName: dialer-env
+  data:
+    - secretKey: JWT_ACCESS_SECRET
+      remoteRef: { key: /dialer/prod/jwt_access }
+    - secretKey: JWT_REFRESH_SECRET
+      remoteRef: { key: /dialer/prod/jwt_refresh }
+    - secretKey: DATABASE_URL
+      remoteRef: { key: /dialer/prod/database_url }
+    - secretKey: CDR_INGEST_TOKEN
+      remoteRef: { key: /dialer/prod/cdr_token }
+    - secretKey: ESL_PASSWORD
+      remoteRef: { key: /dialer/prod/esl_password }
+
+# ---------- Sysctl DaemonSet ----------
+sysctl:
+  enabled: true
+  image: alpine:3.19
+  params:
+    fs.file-max: "2000000"
+    net.core.somaxconn: "65535"
+    net.core.netdev_max_backlog: "250000"
+    net.core.rmem_max: "33554432"
+    net.core.wmem_max: "33554432"
+    net.core.rmem_default: "4194304"
+    net.core.wmem_default: "4194304"
+    net.ipv4.udp_rmem_min: "131072"
+    net.ipv4.udp_wmem_min: "131072"
+    net.ipv4.udp_mem: "262144 524288 1048576"
+    net.ipv4.ip_local_port_range: "1024 65000"
+  nodeSelector: { nodepool: "media-rtp" }
+  tolerations:
+    - key: "workload"
+      operator: "Equal"
+      value: "media"
+      effect: "NoSchedule"

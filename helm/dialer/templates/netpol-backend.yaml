@@ -1,0 +1,27 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: dialer-backend
+spec:
+  podSelector:
+    matchLabels: { app: dialer-backend }
+  policyTypes: ["Ingress","Egress"]
+  ingress:
+    - from:
+        # Ingress NGINX (ajusta selector al tuyo)
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: ingress-nginx }
+        - podSelector: {}   # tráfico interno (opcional)
+      ports:
+        - protocol: TCP
+          port: 8080
+  egress:
+    - to:
+        - podSelector: { matchLabels: { app: dialer-freeswitch } }  # ESL
+      ports: [{ protocol: TCP, port: 8021 }]
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - { protocol: TCP, port: 5432 }  # Postgres
+        - { protocol: TCP, port: 6379 }  # Redis
+    - {} # DNS / egress general (ajusta si usas egress restrictivo)

@@ -39,3 +39,24 @@ freeswitch:
   rtp:
     start: 16384
     end: 32768
+
+externalsecrets:
+  enabled: false
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: dialer-secrets-store
+  targetSecretName: dialer-env
+  data:
+    - secretKey: JWT_ACCESS_SECRET
+      remoteRef: { key: /dialer/prod/jwt_access }
+    - secretKey: JWT_REFRESH_SECRET
+      remoteRef: { key: /dialer/prod/jwt_refresh }
+
+sysctl:
+  enabled: false
+  image: alpine:3.19
+  params:
+    fs.file-max: "2000000"
+    net.core.somaxconn: "65535"
+  nodeSelector: {}
+  tolerations: []
