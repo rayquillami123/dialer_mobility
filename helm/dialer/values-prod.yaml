@@ -2,7 +2,7 @@
 image:
   backend: ghcr.io/ORG/dialer-backend:v1.2.3
   frontend: ghcr.io/ORG/dialer-frontend:v1.2.3
-  freeswitch: signalwire/freeswitch:latest
+  freeswitch: safarov/freeswitch
 
 ingress:
   enabled: true
