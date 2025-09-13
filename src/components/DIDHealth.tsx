@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
@@ -26,8 +24,6 @@ type DidHealthItem = {
   sit: number | null;
   reached_cap: boolean | null;
 };
-
-type ApiResponse = { items: DidHealthItem[] };
 
 type SortKey =
   | 'e164'
@@ -58,11 +54,11 @@ export default function DIDHealth() {
       setLoading(true);
       setError('');
       const r = await authedFetch(`${API}/api/dids/health`);
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      if (!r.ok) throw new Error(`Error HTTP: ${r.status}`);
       const data: DidHealthItem[] = await r.json();
       setItems(Array.isArray(data) ? data : []);
     } catch (e: any) {
-      setError(e?.message || 'Error al cargar datos');
+      setError(e?.message || 'Error al cargar datos de salud de DID');
     } finally {
       setLoading(false);
     }
@@ -150,7 +146,6 @@ export default function DIDHealth() {
     if (u >= 0.9) return 'destructive';
     if (u >= 0.7) return 'secondary'; // ámbar
     return 'default'; // verde
-    // Nota: variant depende de tu tema shadcn; ajusta si usas otros estilos
   }
 
   function headerCell(label: string, key: SortKey) {

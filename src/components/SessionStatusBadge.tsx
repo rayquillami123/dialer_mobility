@@ -21,12 +21,12 @@ export default function SessionStatusBadge() {
     return () => clearInterval(t);
   }, []);
 
-  const { mmLeft, ssLeft, expAt } = useMemo(() => {
-    if (!accessToken) return { mmLeft: 0, ssLeft: 0, expAt: undefined as number|undefined };
+  const { mmLeft, ssLeft } = useMemo(() => {
+    if (!accessToken) return { mmLeft: 0, ssLeft: 0 };
     const p: any = decodeJwt(accessToken);
     const expMs = p?.exp ? p.exp * 1000 : now;
     const left = Math.max(0, Math.floor((expMs - now) / 1000));
-    return { mmLeft: Math.floor(left / 60), ssLeft: left % 60, expAt: expMs };
+    return { mmLeft: Math.floor(left / 60), ssLeft: left % 60 };
   }, [accessToken, now]);
 
   if (!user) return null;

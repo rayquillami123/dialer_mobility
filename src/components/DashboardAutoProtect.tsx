@@ -7,6 +7,8 @@ import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { ShieldAlert, Activity, RefreshCw, Gauge } from 'lucide-react';
+import { useAuth } from '@/hooks/useAuth';
+import { useDialerStore } from '@/store/dialer';
 
 type AutoProtectState = {
   campaign_id: number;
@@ -40,22 +42,17 @@ export default function DashboardAutoProtect({
   campaignLabels = {},
   columns = 3,
 }: Props) {
+  const { authedFetch } = useAuth();
   const API = process.env.NEXT_PUBLIC_API || '';
-  const TOKEN = process.env.NEXT_PUBLIC_API_TOKEN || '';
-  const DEFAULT_WS = API ? API.replace(/^http/i, 'ws').replace(/\/$/, '') + '/ws' : '';
-  const WSURL = process.env.NEXT_PUBLIC_WS || DEFAULT_WS;
-
+  
   const [items, setItems] = useState<Record<number, AutoProtectState>>({});
-  const [connecting, setConnecting] = useState<boolean>(false);
-  const wsRef = useRef<WebSocket | null>(null);
+
+  const autoprotectEvents = useDialerStore(s => s.autoprotect);
 
   // Prefetch: estado actual por campaignIds (si se proveen)
   async function fetchSnapshot(id: number): Promise<AutoProtectState | null> {
     try {
-      const r = await fetch(`${API}/api/campaigns/${id}/autoprotect`, {
-        headers: TOKEN ? { Authorization: `Bearer ${TOKEN}` } : undefined,
-        cache: 'no-store',
-      });
+      const r = await authedFetch(`${API}/api/campaigns/${id}/autoprotect`);
       if (!r.ok) return null;
       const j: SnapshotResp = await r.json();
       return {
@@ -81,49 +78,32 @@ export default function DashboardAutoProtect({
     setItems(next);
   }
 
-  // WebSocket live feed
+  // Process WebSocket events from Zustand store
   useEffect(() => {
-    if (!WSURL) return;
-    setConnecting(true);
-    try {
-      const ws = new WebSocket(WSURL);
-      wsRef.current = ws;
-      ws.onopen = () => setConnecting(false);
-      ws.onclose = () => setConnecting(false);
-      ws.onerror = () => setConnecting(false);
-      ws.onmessage = (ev) => {
-        try {
-          const data = JSON.parse(ev.data);
-          if (data?.type === 'campaign.autoprotect') {
-            const s: AutoProtectState = {
-              campaign_id: Number(data.campaign_id),
-              pct: Number(data.pct || 0),
-              cap: Number(data.cap || 3),
-              multiplier: Number(data.multiplier || 1),
-              status: (data.status || 'ok') as AutoProtectState['status'],
-              ts: Number(data.ts || Date.now()),
-            };
-            // Si campaignIds está definido, filtrar a esos; si no, aceptar todos
-            if (!campaignIds || campaignIds.includes(s.campaign_id)) {
-              setItems((prev) => ({ ...prev, [s.campaign_id]: s }));
-            }
-          }
-        } catch {}
+    const latestEvent = autoprotectEvents[autoprotectEvents.length - 1];
+    if (latestEvent) {
+       const s: AutoProtectState = {
+        campaign_id: Number(latestEvent.campaign_id),
+        pct: Number(latestEvent.pct || 0),
+        cap: Number(latestEvent.cap || 3),
+        multiplier: Number(latestEvent.multiplier || 1),
+        status: (latestEvent.status || 'ok') as AutoProtectState['status'],
+        ts: Number(latestEvent.ts || Date.now()),
       };
-      return () => {
-        try { ws.close(); } catch {}
-      };
-    } catch {
-      setConnecting(false);
+      if (!campaignIds || campaignIds.includes(s.campaign_id)) {
+        setItems((prev) => ({ ...prev, [s.campaign_id]: s }));
+      }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [WSURL, JSON.stringify(campaignIds)]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoprotectEvents]);
+
 
   // Prefetch inicial (si nos pasan IDs)
   useEffect(() => {
     if (campaignIds?.length) refreshAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(campaignIds), API]);
+  }, [JSON.stringify(campaignIds)]);
+
 
   const list = useMemo(() => {
     const vals = Object.values(items);
@@ -135,7 +115,7 @@ export default function DashboardAutoProtect({
         .filter(Boolean) as AutoProtectState[];
     }
     return vals.sort((a, b) => b.pct - a.pct);
-  }, [items, JSON.stringify(campaignIds)]);
+  }, [items, campaignIds]);
 
   function statusBadgeVariant(s: AutoProtectState['status']): 'default' | 'secondary' | 'destructive' | 'outline' {
     if (s === 'throttled') return 'destructive';
@@ -168,7 +148,6 @@ export default function DashboardAutoProtect({
           Auto-Protección por Campaña
         </CardTitle>
         <div className="flex items-center gap-2">
-          {connecting && <Badge variant="secondary" className="text-xs">WS conectando…</Badge>}
           <Button variant="outline" size="sm" onClick={refreshAll} disabled={!campaignIds?.length}>
             <RefreshCw className="h-4 w-4 mr-1" /> Refresh
           </Button>
