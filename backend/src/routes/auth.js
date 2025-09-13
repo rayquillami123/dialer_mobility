@@ -69,7 +69,7 @@ router.post('/login', async (req,res)=>{
     const at = signAccess(user);
     const rt = signRefresh(user);
     setRefreshCookie(res, rt);
-    return res.json({ access_token: at, user });
+    return res.json({ accessToken: at, access_token: at, user });
   }catch(e){
     console.error('auth.login', e);
     return res.status(500).json({error:'internal_error'});
@@ -99,7 +99,7 @@ router.post('/refresh', async (req,res)=>{
     // opcional: rotate refresh
     const rt = signRefresh(user);
     setRefreshCookie(res, rt);
-    return res.json({ access_token: at, user });
+    return res.json({ accessToken: at, access_token: at, user });
   }catch{
     return res.status(401).json({error:'invalid_refresh'});
   }

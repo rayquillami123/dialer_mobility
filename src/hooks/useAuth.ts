@@ -33,8 +33,10 @@ export function useAuth() {
     });
     if (!r.ok) throw new Error('Credenciales inválidas');
     const data = await r.json();
-    setSession(data.user, data.access_token);
-    scheduleRefresh(data.access_token);
+    const token = data.accessToken ?? data.access_token;
+    if (!token) throw new Error('No access token in response');
+    setSession(data.user, token);
+    scheduleRefresh(token);
   }
 
   async function refresh() {
@@ -44,8 +46,10 @@ export function useAuth() {
     });
     if (!r.ok) throw new Error('No refresh');
     const data = await r.json();
-    setSession(data.user, data.access_token);
-    scheduleRefresh(data.access_token);
+    const token = data.accessToken ?? data.access_token;
+    if (!token) throw new Error('No access token in response');
+    setSession(data.user, token);
+    scheduleRefresh(token);
   }
 
   function clearTimers(){ if (refreshTimer) clearTimeout(refreshTimer); refreshTimer=null; }

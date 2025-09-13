@@ -6,7 +6,7 @@ const args = process.argv.slice(2);
 const API = getArg('--api') || process.env.DIALER_API || 'http://localhost:8080';
 const email = getArg('-e') || getArg('--email');
 const pass  = getArg('-p') || getArg('--password');
-const tenant = getArg('-t') || getArg('--tenant');
+let tenantId = getArg('-t') || getArg('--tenant-id');
 const role = getArg('-r') || getArg('--role'); // admin|supervisor|agent
 const target = getArg('--target'); // email del usuario objetivo
 
@@ -19,31 +19,30 @@ async function main() {
   const cmd = args[0];
   if (!cmd) return help(0);
 
-  // Comandos que no requieren login
-  if (cmd === 'login') {
-    require(email && pass, 'login requiere -e y -p');
+  if (cmd !== 'login') {
+    require(email && pass, `Comando '${cmd}' requiere login con -e y -p`);
     await login(email, pass);
-    console.log('Login OK como', email);
-    return;
   }
 
-  // Comandos que sí requieren login previo
-  require(email && pass, 'Todos los comandos (excepto login) requieren -e, -p');
-  await login(email, pass);
-
   switch (cmd) {
+    case 'login':
+      require(email && pass, 'login requiere -e y -p');
+      await login(email, pass);
+      console.log('Login OK como', email);
+      break;
+
     case 'invite-user':
       require(getArg('--invite'), 'invite-user requiere --invite <email>');
       await inviteUser(getArg('--invite'), role || 'viewer');
       break;
 
     case 'set-role':
-      require(target && role, 'set-role requiere --target y -r (admin|supervisor|agent|viewer)');
+      require(target && role, 'set-role requiere --target <email> y -r <rol>');
       await setRole(target, role);
       break;
 
     case 'disable-user':
-      require(target, 'disable-user requiere --target');
+      require(target, 'disable-user requiere --target <email>');
       await disableUser(target);
       break;
 
@@ -61,9 +60,10 @@ function help(code=0){
 Dialer Admin CLI
 Uso básico (API: ${API}):
 
-  # Iniciar sesión (opcional, todos los comandos lo hacen)
-  node ops/cli/admin.mjs --api https://api.midominio.com login -e admin@example.com -p '*****'
+  # Iniciar sesión (necesario para otros comandos)
+  node ops/cli/admin.mjs --api https://api.midominio.com login -e admin@empresa.com -p '*****'
 
+  # (Los siguientes comandos reusan la sesión)
   # Invitar usuario
   node ops/cli/admin.mjs --api ... invite-user -e admin@... -p '...' --invite agente@acme.com -r agent
 
@@ -82,60 +82,59 @@ Uso básico (API: ${API}):
 function require(cond, msg){ if(!cond){ console.error('Error:', msg); process.exit(1);} }
 
 async function login(email, password){
-  const res = await fetchJSON('/api/auth/login', {
+  const data = await fetchJSON('/api/auth/login', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ email, password })
   }, { captureCookies: true });
   
-  accessToken = res.access_token;
-  if (!accessToken) throw new Error('No se recibió access_token');
+  accessToken = data.accessToken || data.access_token;
+  if (!accessToken) throw new Error('No se recibió accessToken');
+  tenantId = data.user?.tenant_id;
 }
 
 async function findUserIdByEmail(email) {
-  const data = await authedFetchJSON(`/api/users`);
-  const user = (data.items || []).find(u => u.email === email);
-  if (!user) throw new Error(`Usuario no encontrado con email: ${email}`);
+  const users = await authedFetchJSON('/api/users');
+  const user = (users.items || []).find(u => u.email === email);
+  if (!user) throw new Error(`Usuario ${email} no encontrado en el tenant.`);
   return user.id;
 }
 
-
-async function inviteUser(userEmail, role){
+async function inviteUser(userEmail, userRole){
   const body = await authedFetchJSON(`/api/users/invite`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ email: userEmail, roles: [role] })
+    body: JSON.stringify({ email: userEmail, roles: [userRole] })
   });
   console.log('Invitación creada:', body);
 }
 
 async function setRole(userEmail, newRole){
-  const userId = await findUserIdByEmail(userEmail);
-  const body = await authedFetchJSON(`/api/users/${userId}/roles`, {
+  const uid = await findUserIdByEmail(userEmail);
+  const body = await authedFetchJSON(`/api/users/${uid}/roles`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ roles: [newRole] })
   });
-  console.log('Rol actualizado:', body);
+  console.log(`Rol de ${userEmail} actualizado a ${newRole}:`, body);
 }
 
 async function disableUser(userEmail){
-  const userId = await findUserIdByEmail(userEmail);
-  const body = await authedFetchJSON(`/api/users/${userId}/deactivate`, {
+  const uid = await findUserIdByEmail(userEmail);
+  const body = await authedFetchJSON(`/api/users/${uid}/deactivate`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({})
   });
-  console.log('Usuario desactivado:', body);
+  console.log(`Usuario ${userEmail} desactivado:`, body);
 }
 
 async function listUsers(){
   const body = await authedFetchJSON(`/api/users`);
   console.table((body.items||[]).map(u => ({
-    id: u.id, email: u.email, name:u.name, roles: u.roles.join(','), is_active: u.is_active
+    id: u.id, email: u.email, name: u.name, roles: u.roles.join(','), active: u.is_active
   })));
 }
-
-/* --- helpers HTTP con reintentos exponenciales --- */
 
 async function fetchJSON(path, init={}, opts={}){
   const url = path.startsWith('http') ? path : `${API}${path}`;
@@ -147,7 +146,6 @@ async function fetchJSON(path, init={}, opts={}){
     },
     redirect: 'manual',
   });
-  // Captura cookies (refresh)
   const setCookie = res.headers.get('set-cookie');
   if (opts.captureCookies && setCookie) cookies = mergeCookies(cookies, setCookie);
   if (!res.ok) {
@@ -158,7 +156,6 @@ async function fetchJSON(path, init={}, opts={}){
 }
 
 function mergeCookies(prev, setCookieHeader){
-  // Muy simple: mantenemos el último valor 'rt='
   const rt = /(^|;)\s*rt=([^;]+)/i.exec(setCookieHeader);
   if (rt) return `rt=${rt[2]};`;
   return prev;
@@ -175,12 +172,10 @@ async function authedFetchJSON(path, init={}, retry=0){
     });
     return res;
   }catch(err){
-    // Si 401, intenta refresh silencioso una vez
     if (String(err).includes('401') && retry < 1) {
       await refresh();
       return authedFetchJSON(path, init, retry+1);
     }
-    // Backoff simple para fallos transitorios
     if (retry < 3) {
       await sleep(200 * 2**retry);
       return authedFetchJSON(path, init, retry+1);
@@ -191,7 +186,7 @@ async function authedFetchJSON(path, init={}, retry=0){
 
 async function refresh(){
   const res = await fetchJSON('/api/auth/refresh', { method:'POST' }, { captureCookies:true });
-  accessToken = res.access_token;
+  accessToken = res.accessToken || res.access_token;
   if (!accessToken) throw new Error('refresh: sin accessToken');
 }
 
