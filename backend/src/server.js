@@ -35,10 +35,11 @@ const metrics = promBundle({
 });
 app.use(metrics);
 
-const ALLOWED_ORIGINS = (process.env.CORS_ORIGIN || 'http://localhost:3000,http://localhost:9002').split(',');
+const ALLOWED_ORIGINS = (process.env.CORS_ORIGIN || '').split(',').map(s => s.trim()).filter(Boolean);
 if (process.env.NODE_ENV === 'development' || process.env.FIREBASE_DEBUG) {
   ALLOWED_ORIGINS.push('https://studio.firebase.google.com');
 }
+
 
 app.use(cors({
   origin: (origin, cb) => {

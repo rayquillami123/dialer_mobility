@@ -22,14 +22,15 @@ function signRefresh(user){
   return jwt.sign({ sub: String(user.id) }, process.env.JWT_REFRESH_SECRET || 'dev', { expiresIn: `${days}d` });
 }
 function setRefreshCookie(res, token){
-  const secure = String(process.env.COOKIE_SECURE||'true') === 'true';
-  res.cookie('rt', token, {
+  const isProd = process.env.NODE_ENV === 'production';
+  const cookieOpts = {
     httpOnly: true,
-    secure,
-    sameSite: secure ? 'none' : 'lax',
+    secure: isProd,
+    sameSite: isProd ? 'none' : 'lax',
     path: '/api/auth/refresh',
     maxAge: Number(process.env.JWT_REFRESH_TTL_DAYS || 7) * 24*60*60*1000,
-  });
+  };
+  res.cookie('rt', token, cookieOpts);
 }
 
 async function loadUserByEmail(email){
@@ -114,7 +115,14 @@ router.get('/me', async (req,res)=>{
 });
 
 router.post('/logout', (req,res)=>{
-  res.clearCookie('rt', { path:'/api/auth/refresh' });
+  const isProd = process.env.NODE_ENV === 'production';
+  const cookieOpts = {
+    httpOnly: true,
+    secure: isProd,
+    sameSite: isProd ? 'none' : 'lax',
+    path: '/api/auth/refresh',
+  };
+  res.clearCookie('rt', cookieOpts);
   res.json({ ok:true });
 });
 
