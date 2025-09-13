@@ -1,3 +1,4 @@
+
 export interface Trunk { 
   id: string; 
   name: string; 
@@ -14,3 +15,10 @@ export type AmiAriNotesForm = {
   version: string;
   purpose: string;
 };
+
+
+export interface Campaign {
+  id: number;
+  name: string;
+  status: 'running' | 'paused' | 'stopped';
+}

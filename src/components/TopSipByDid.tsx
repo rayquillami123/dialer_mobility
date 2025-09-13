@@ -12,27 +12,16 @@ import { useAuth } from '@/hooks/useAuth';
 
 type TopSipRow = {
   did_id: number | null;
-  sip_code: string;
+  code: string;
   n: number;
 };
-
-type TopSipResponse = { window: string; rows: TopSipRow[] };
 
 type DidHealthItem = {
   id: number;
   e164: string;
   state: string | null;
-  daily_cap: number | null;
-  score: number | null;
-  calls_total: number | null;
-  unique_numbers: number | null;
-  human: number | null;
-  voicemail: number | null;
-  fax: number | null;
-  sit: number | null;
-  reached_cap: boolean | null;
 };
-type DidHealthResponse = DidHealthItem[];
+type DidResponse = { items: DidHealthItem[] };
 
 type SortKey = 'did' | 'state' | 'code' | 'count' | 'pct';
 
@@ -54,16 +43,16 @@ export default function TopSipByDid() {
     setErr('');
     try {
       const [r1, r2] = await Promise.all([
-        authedFetch(`${API}/api/dids/top-sip?window=${windowVal}`),
-        authedFetch(`${API}/api/dids/health`),
+        authedFetch(`${API}/api/dids/top-sip?window=${parseInt(windowVal)}`),
+        authedFetch(`${API}/api/dids`),
       ]);
       if (!r1.ok) throw new Error(`TopSIP HTTP ${r1.status}`);
       if (!r2.ok) throw new Error(`DIDs HTTP ${r2.status}`);
 
-      const data1: TopSipResponse = await r1.json();
-      const data2: DidHealthResponse = await r2.json();
-      setRows(Array.isArray(data1.rows) ? data1.rows : []);
-      setDids(Array.isArray(data2) ? data2 : []);
+      const data1: TopSipRow[] = await r1.json();
+      const data2: DidResponse = await r2.json();
+      setRows(Array.isArray(data1) ? data1 : []);
+      setDids(Array.isArray(data2.items) ? data2.items : []);
     } catch (e: any) {
       setErr(e?.message || 'Error al cargar datos');
     } finally {
@@ -115,7 +104,7 @@ export default function TopSipByDid() {
     return enriched.filter(r =>
       r.e164.toLowerCase().includes(q) ||
       r.state.toLowerCase().includes(q) ||
-      r.sip_code.toLowerCase().includes(q)
+      r.code.toLowerCase().includes(q)
     );
   }, [enriched, search]);
 
@@ -127,7 +116,7 @@ export default function TopSipByDid() {
       switch (sortKey) {
         case 'did':   A = a.e164; B = b.e164; break;
         case 'state': A = a.state; B = b.state; break;
-        case 'code':  A = a.sip_code; B = b.sip_code; break;
+        case 'code':  A = a.code; B = b.code; break;
         case 'count': A = a.n; B = b.n; break;
         case 'pct':   A = a.pct; B = b.pct; break;
       }
@@ -166,7 +155,7 @@ export default function TopSipByDid() {
       ...sorted.map(r => [
         r.e164,
         r.state,
-        r.sip_code,
+        r.code,
         String(r.n),
         `${r.pct.toFixed(2)}%`,
         windowVal,
@@ -238,11 +227,11 @@ export default function TopSipByDid() {
               </TableHeader>
               <TableBody>
                 {sorted.map((r, i) => (
-                  <TableRow key={`${r.did_id ?? 'null'}-${r.sip_code}-${i}`}>
+                  <TableRow key={`${r.did_id ?? 'null'}-${r.code}-${i}`}>
                     <TableCell className="font-mono">{r.e164}</TableCell>
                     <TableCell>{r.state}</TableCell>
                     <TableCell>
-                      <Badge variant={codeBadgeVariant(r.sip_code)}>{r.sip_code}</Badge>
+                      <Badge variant={codeBadgeVariant(r.code)}>{r.code}</Badge>
                     </TableCell>
                     <TableCell>{r.n}</TableCell>
                     <TableCell>{r.pct.toFixed(2)}%</TableCell>

@@ -1,7 +1,7 @@
 
 'use client';
 
-import { useEffect, useState }from 'react';
+import { useEffect, useState } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
@@ -10,11 +10,12 @@ import { useAuth } from '@/hooks/useAuth';
 
 type HealthItem = {
     trunk_id: number;
+    trunk_name: string;
     total_calls: number;
     asr: number;
     p50_pdd_ms: number;
     p90_pdd_ms: number;
-    sip_mix: Record<string, number>;
+    sip_mix: Record<string, number> | null;
 };
 
 export default function ProvidersHealth() {
@@ -41,6 +42,7 @@ export default function ProvidersHealth() {
 
     useEffect(() => {
         fetchHealth();
+         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     const codeBadgeVariant = (code: string): 'default' | 'secondary' | 'destructive' | 'outline' => {
@@ -63,7 +65,8 @@ export default function ProvidersHealth() {
             <CardContent>
                 {loading && <p className="text-sm text-muted-foreground">Cargando...</p>}
                 {error && <p className="text-sm text-red-600">Error: {error}</p>}
-                {health && (
+                {health && health.length === 0 && <p className="text-sm text-muted-foreground">No hay datos de proveedores para mostrar.</p>}
+                {health && health.length > 0 && (
                     <Table>
                         <TableHeader>
                             <TableRow>
@@ -77,10 +80,10 @@ export default function ProvidersHealth() {
                         <TableBody>
                             {health.map((item: HealthItem) => (
                                 <TableRow key={item.trunk_id}>
-                                    <TableCell>{item.trunk_id}</TableCell>
+                                    <TableCell>{item.trunk_name} ({item.trunk_id})</TableCell>
                                     <TableCell>{(item.asr * 100).toFixed(1)}%</TableCell>
-                                    <TableCell>{item.p50_pdd_ms} ms</TableCell>
-                                    <TableCell>{item.p90_pdd_ms} ms</TableCell>
+                                    <TableCell>{item.p50_pdd_ms || 'N/A'} ms</TableCell>
+                                    <TableCell>{item.p90_pdd_ms || 'N/A'} ms</TableCell>
                                     <TableCell className="flex flex-wrap gap-1">
                                         {item.sip_mix && Object.entries(item.sip_mix)
                                             .sort(([, a], [, b]) => b - a)
