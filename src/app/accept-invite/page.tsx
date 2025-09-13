@@ -1,13 +1,13 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import PasswordInput from '@/components/PasswordInput';
 
-export default function AcceptInvitePage() {
+function AcceptInvite() {
   const API = process.env.NEXT_PUBLIC_API || '';
   const router = useRouter();
   const sp = useSearchParams();
@@ -91,5 +91,13 @@ export default function AcceptInvitePage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+export default function AcceptInvitePage() {
+  return (
+    <Suspense fallback={<div>Cargando...</div>}>
+      <AcceptInvite />
+    </Suspense>
   );
 }

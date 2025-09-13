@@ -1,13 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import PasswordInput from '@/components/PasswordInput';
-import { Input } from '@/components/ui/input';
 
-export default function ResetPasswordPage() {
+function ResetPassword() {
   const API = process.env.NEXT_PUBLIC_API || '';
   const router = useRouter();
   const sp = useSearchParams();
@@ -81,4 +80,12 @@ export default function ResetPasswordPage() {
       </Card>
     </div>
   );
+}
+
+export default function ResetPasswordPage() {
+    return (
+        <Suspense fallback={<div>Cargando...</div>}>
+            <ResetPassword />
+        </Suspense>
+    );
 }
