@@ -225,7 +225,7 @@ Esta sección detalla la arquitectura, el dimensionamiento y el tuning necesario
 - **Orquestador Avanzado**: Debe gestionar CPS por troncal, recibir "backpressure" de los nodos sobrecargados y usar un scheduler adaptativo basado en la profundidad de la cola de agentes.
 - **Pruebas de Carga (SIPp + RTPengine)**:
     - **Rampa de Carga**: Incrementar gradualmente hasta 500 CPS y mantener durante 30 minutos.
-    - **KPIs de Éxito**: Pérdida de paquetes RTP < 0.2%, Jitter < 20 ms, PDD < 2.5s, CPU < 70%.
+    - **KPIs de Éxito**: Pérdida de paquetes RTP &lt; 0.2%, Jitter &lt; 20 ms, PDD &lt; 2.5s, CPU &lt; 70%.
     - **Pruebas de Failover**: Simular la caída de un nodo FS y verificar que el sistema sigue operando sin pérdida de llamadas nuevas.
 
 ### 6. Playbook de Pruebas de Carga (SIPp)
@@ -238,16 +238,16 @@ Este escenario simula un agente de usuario del lado del proveedor (UAS) que resp
 **`sipp/scenarios/uas_183_200_rtp_echo.xml`**
 ```xml
 <?xml version="1.0" encoding="ISO-8859-1" ?>
-<!-- SIPp UAS: responde 183 con SDP (early media), luego 200 OK con SDP.
-     Con la opción -rtp_echo, SIPp devolverá cualquier RTP recibido. -->
-<scenario name="UAS 183 early media -> 200 OK (RTP echo)">
+&lt;!-- SIPp UAS: responde 183 con SDP (early media), luego 200 OK con SDP.
+     Con la opción -rtp_echo, SIPp devolverá cualquier RTP recibido. --&gt;
+&lt;scenario name="UAS 183 early media -&gt; 200 OK (RTP echo)"&gt;
 
-  <!-- 1) Recibir INVITE -->
-  <recv request="INVITE" rtd="true"/>
+  &lt;!-- 1) Recibir INVITE --&gt;
+  &lt;recv request="INVITE" rtd="true"/&gt;
 
-  <!-- 2) Enviar 100 Trying -->
-  <send>
-    <![CDATA[
+  &lt;!-- 2) Enviar 100 Trying --&gt;
+  &lt;send&gt;
+    &lt;![CDATA[
 SIP/2.0 100 Trying
 Via: [last_Via:]
 From: [last_From:]
@@ -255,12 +255,12 @@ To: [last_To:]
 Call-ID: [last_Call-ID:]
 CSeq: [last_CSeq:]
 Content-Length: 0
-    ]]>
-  </send>
+    ]]&gt;
+  &lt;/send&gt;
 
-  <!-- 3) Enviar 183 con SDP (early media) -->
-  <send>
-    <![CDATA[
+  &lt;!-- 3) Enviar 183 con SDP (early media) --&gt;
+  &lt;send&gt;
+    &lt;![CDATA[
 SIP/2.0 183 Session Progress
 Via: [last_Via:]
 From: [last_From:]
@@ -279,15 +279,15 @@ t=0 0
 m=audio [media_port] RTP/AVP 0
 a=rtpmap:0 PCMU/8000
 a=sendrecv
-    ]]>
-  </send>
+    ]]&gt;
+  &lt;/send&gt;
 
-  <!-- 4) Pausa corta de early media -->
-  <pause milliseconds="2000"/>
+  &lt;!-- 4) Pausa corta de early media --&gt;
+  &lt;pause milliseconds="2000"/&gt;
 
-  <!-- 5) Enviar 200 OK con SDP (establece llamada) -->
-  <send>
-    <![CDATA[
+  &lt;!-- 5) Enviar 200 OK con SDP (establece llamada) --&gt;
+  &lt;send&gt;
+    &lt;![CDATA[
 SIP/2.0 200 OK
 Via: [last_Via:]
 From: [last_From:]
@@ -306,18 +306,18 @@ t=0 0
 m=audio [media_port] RTP/AVP 0
 a=rtpmap:0 PCMU/8000
 a=sendrecv
-    ]]>
-  </send>
+    ]]&gt;
+  &lt;/send&gt;
 
-  <!-- 6) Esperar ACK -->
-  <recv request="ACK" crlf="true" />
+  &lt;!-- 6) Esperar ACK --&gt;
+  &lt;recv request="ACK" crlf="true" /&gt;
 
-  <!-- 7) Mantener llamada X ms para media bidireccional -->
-  <pause milliseconds="10000"/>
+  &lt;!-- 7) Mantener llamada X ms para media bidireccional --&gt;
+  &lt;pause milliseconds="10000"/&gt;
 
-  <!-- 8) Colgar (BYE) si el origen no lo hace antes -->
-  <send>
-    <![CDATA[
+  &lt;!-- 8) Colgar (BYE) si el origen no lo hace antes --&gt;
+  &lt;send&gt;
+    &lt;![CDATA[
 BYE sip:[service]@[remote_ip]:[remote_port] SIP/2.0
 Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
 From: <sip:uas@[local_ip]>;tag=[call_number]
@@ -326,3 +326,20 @@ Call-ID: [last_Call-ID:]
 CSeq: 2 BYE
 Max-Forwards: 70
 Content-Length: 0
+    ]]&gt;
+  &lt;/send&gt;
+```
+- **Integración con Plataformas Externas**:
+    - **FusionPBX**:
+      1.  No levantes el contenedor `freeswitch` local.
+      2.  En FusionPBX, habilita el Event Socket y ajusta la ACL para permitir la conexión desde el backend del dialer.
+      3.  Configura `mod_json_cdr` en FusionPBX para que envíe los CDRs a tu backend.
+      4.  En el `.env` de tu dialer, apunta `ESL_HOST` a la IP de FusionPBX.
+      5.  Origina las llamadas desde tu orquestador hacia las colas o extensiones de FusionPBX.
+    - **Issabel/Asterisk**:
+      1.  **Opción A (Solo Trunk SIP)**: Configura un troncal SIP desde tu FreeSWITCH (o SBC) hacia Issabel. El dialer origina, Issabel enruta a los agentes.
+      2.  **Opción B (Con Bridge AMI)**: Crea un usuario AMI en Issabel y utiliza un microservicio "puente" que traduzca eventos AMI a WebSockets para que tu frontend pueda ver el estado de los agentes y colas.
+    - **MagnusBilling**:
+      1.  Configura un gateway SIP en `sofia.conf.xml` que apunte al proxy SIP de MagnusBilling.
+      2.  Tu orquestador origina las llamadas a través de este gateway. Magnus se encarga de la tarificación y el enrutamiento final hacia el carrier.
+      3.  Tu backend sigue recibiendo los CDRs directamente de FreeSWITCH para mantener la observabilidad en tiempo real.

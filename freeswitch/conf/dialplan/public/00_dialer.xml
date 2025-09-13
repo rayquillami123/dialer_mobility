@@ -1,0 +1,17 @@
+<include>
+  <extension name="dialer_outbound">
+    <condition field="destination_number" expression="^(\d+)$">
+      <!-- Variables del orquestador -->
+      <action application="set" data="X_TENANT=${X_TENANT}"/>
+      <action application="set" data="X_CAMPAIGN=${X_CAMPAIGN}"/>
+      <action application="set" data="X_DID=${effective_caller_id_number}"/>
+
+      <!-- AMD simple (puede ser AVMD o IA externa) -->
+      <action application="avmd_start"/>
+      <!-- … tu lógica de prompts/press-1 si aplica … -->
+
+      <!-- Transfer a cola cuando humano -->
+      <action application="callcenter" data="${X_QUEUE}"/>
+    </condition>
+  </extension>
+</include>

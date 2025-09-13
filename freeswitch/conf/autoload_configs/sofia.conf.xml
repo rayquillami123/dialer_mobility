@@ -1,0 +1,34 @@
+<configuration name="sofia.conf" description="sofia settings">
+  <global_settings>
+    <param name="log-level" value="3"/>
+  </global_settings>
+
+  <!-- Perfil externo para troncales/carriers -->
+  <profiles>
+    <profile name="external">
+      <gateways>
+        <!-- Ejemplo: gateway a Magnus o carrier -->
+        <!-- <gateway name="gw_carrierA">
+          <param name="proxy" value="sip.carrierA.com"/>
+          <param name="username" value="USER"/>
+          <param name="password" value="PASS"/>
+          <param name="register" value="true"/>
+        </gateway> -->
+      </gateways>
+      <domains/>
+      <settings>
+        <param name="user-agent-string" value="DialerInteligente/1.0"/>
+        <param name="rfc2833-pt" value="101"/>
+        <param name="sip-port" value="5060"/>
+        <param name="sip-ip" value="$${local_ip_v4}"/>
+        <param name="ext-rtp-ip" value="auto-nat"/>
+        <param name="ext-sip-ip" value="auto-nat"/>
+        <param name="inbound-codec-prefs" value="PCMU,PCMA"/>
+        <param name="outbound-codec-prefs" value="PCMU,PCMA"/>
+        <param name="disable-transcoding" value="true"/>
+        <param name="rtp-ip" value="$${local_ip_v4}"/>
+        <param name="rtp-timeout-sec" value="10"/>
+      </settings>
+    </profile>
+  </profiles>
+</configuration>

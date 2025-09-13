@@ -1,0 +1,14 @@
+<configuration name="json_cdr.conf" description="JSON CDR">
+  <settings>
+    <param name="log-b-leg" value="true"/>
+    <param name="prefix-a-leg" value="true"/>
+    <param name="encode-values" value="true"/>
+    <param name="pretty" value="false"/>
+
+    <!-- Reemplazar DIALECT según tu backend: -->
+    <param name="url" value="http://backend:8080/api/cdr?token=${cdr_token}"/>
+    <param name="delay" value="500"/>
+    <param name="retries" value="5"/>
+    <param name="log-dir" value="/var/log/freeswitch/json_cdr"/>
+  </settings>
+</configuration>

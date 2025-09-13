@@ -1,0 +1,15 @@
+<configuration name="callcenter.conf" description="CallCenter">
+  <queues>
+    <queue name="ventas_us">
+      <param name="strategy" value="longest-idle-agent"/>
+      <param name="moh-sound" value="local_stream://default"/>
+      <param name="time-base-score" value="queue"/>
+      <param name="tier-rules-apply" value="false"/>
+      <param name="max-wait-time" value="0"/>
+      <param name="max-wait-time-with-no-agent" value="0"/>
+      <param name="abandoned-resume-allowed" value="true"/>
+    </queue>
+  </queues>
+  <agents/>
+  <tiers/>
+</configuration>
