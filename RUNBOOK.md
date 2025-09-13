@@ -228,4 +228,101 @@ Esta sección detalla la arquitectura, el dimensionamiento y el tuning necesario
     - **KPIs de Éxito**: Pérdida de paquetes RTP < 0.2%, Jitter < 20 ms, PDD < 2.5s, CPU < 70%.
     - **Pruebas de Failover**: Simular la caída de un nodo FS y verificar que el sistema sigue operando sin pérdida de llamadas nuevas.
 
-Este blueprint asegura que la plataforma no solo funcione bajo carga, sino que lo haga de manera predecible, estable y resiliente.
+### 6. Playbook de Pruebas de Carga (SIPp)
+
+Esta sección describe cómo usar SIPp para generar una carga realista y validar el rendimiento de la plataforma.
+
+#### Escenario SIPp: UAS con Early Media y RTP Echo
+Este escenario simula un agente de usuario del lado del proveedor (UAS) que responde con `183 Session Progress` (early media), seguido de un `200 OK`, y utiliza la opción `-rtp_echo` de SIPp para devolver cualquier paquete RTP que reciba.
+
+**`sipp/scenarios/uas_183_200_rtp_echo.xml`**
+```xml
+<?xml version="1.0" encoding="ISO-8859-1" ?>
+<!-- SIPp UAS: responde 183 con SDP (early media), luego 200 OK con SDP.
+     Con la opción -rtp_echo, SIPp devolverá cualquier RTP recibido. -->
+<scenario name="UAS 183 early media -> 200 OK (RTP echo)">
+
+  <!-- 1) Recibir INVITE -->
+  <recv request="INVITE" rtd="true"/>
+
+  <!-- 2) Enviar 100 Trying -->
+  <send>
+    <![CDATA[
+SIP/2.0 100 Trying
+Via: [last_Via:]
+From: [last_From:]
+To: [last_To:]
+Call-ID: [last_Call-ID:]
+CSeq: [last_CSeq:]
+Content-Length: 0
+    ]]>
+  </send>
+
+  <!-- 3) Enviar 183 con SDP (early media) -->
+  <send>
+    <![CDATA[
+SIP/2.0 183 Session Progress
+Via: [last_Via:]
+From: [last_From:]
+To: [last_To:];tag=[call_number]
+Call-ID: [last_Call-ID:]
+CSeq: [last_CSeq:]
+Contact: <sip:[local_ip]:[local_port];transport=[transport]>
+Content-Type: application/sdp
+Content-Length: [len]
+
+v=0
+o=- 0 0 IN IP4 [local_ip]
+s=early-media
+c=IN IP4 [local_ip]
+t=0 0
+m=audio [media_port] RTP/AVP 0
+a=rtpmap:0 PCMU/8000
+a=sendrecv
+    ]]>
+  </send>
+
+  <!-- 4) Pausa corta de early media -->
+  <pause milliseconds="2000"/>
+
+  <!-- 5) Enviar 200 OK con SDP (establece llamada) -->
+  <send>
+    <![CDATA[
+SIP/2.0 200 OK
+Via: [last_Via:]
+From: [last_From:]
+To: [last_To:];tag=[call_number]
+Call-ID: [last_Call-ID:]
+CSeq: [last_CSeq:]
+Contact: <sip:[local_ip]:[local_port];transport=[transport]>
+Content-Type: application/sdp
+Content-Length: [len]
+
+v=0
+o=- 0 0 IN IP4 [local_ip]
+s=answer
+c=IN IP4 [local_ip]
+t=0 0
+m=audio [media_port] RTP/AVP 0
+a=rtpmap:0 PCMU/8000
+a=sendrecv
+    ]]>
+  </send>
+
+  <!-- 6) Esperar ACK -->
+  <recv request="ACK" crlf="true" />
+
+  <!-- 7) Mantener llamada X ms para media bidireccional -->
+  <pause milliseconds="10000"/>
+
+  <!-- 8) Colgar (BYE) si el origen no lo hace antes -->
+  <send>
+    <![CDATA[
+BYE sip:[service]@[remote_ip]:[remote_port] SIP/2.0
+Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+From: <sip:uas@[local_ip]>;tag=[call_number]
+To: [last_From:]
+Call-ID: [last_Call-ID:]
+CSeq: 2 BYE
+Max-Forwards: 70
+Content-Length: 0
