@@ -6,7 +6,7 @@ import Dashboard from '@/components/dialer/Dashboard';
 function DialerInteligenteMain() {
   const { campaigns } = useDialerStore();
 
-  return <Dashboard campaigns={campaigns as Campaign[]} />;
+  return <Dashboard campaigns={campaigns as any[]} />;
 }
 
 export default function DashboardPage() {
