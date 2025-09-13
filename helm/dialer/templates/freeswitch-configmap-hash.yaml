@@ -1,0 +1,10 @@
+{{- /*
+  Renderiza el contenido del ConfigMap real para generar un hash y forzar rollout
+  cuando cambien los ficheros de /etc/freeswitch.
+*/ -}}
+{{- $cm := (lookup "v1" "ConfigMap" .Release.Namespace (default "freeswitch-conf" .Values.freeswitch.conf.configMapName)) -}}
+{{- if $cm -}}
+{{ toJson $cm.data }}
+{{- else -}}
+"no-configmap"
+{{- end -}}

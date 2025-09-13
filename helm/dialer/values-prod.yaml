@@ -1,0 +1,96 @@
+# Imágenes firmadas/publicadas por tu pipeline
+image:
+  backend: ghcr.io/ORG/dialer-backend:v1.2.3
+  frontend: ghcr.io/ORG/dialer-frontend:v1.2.3
+  freeswitch: signalwire/freeswitch:latest
+
+ingress:
+  enabled: true
+  className: nginx
+  tlsSecret: tls-dialer
+  hosts:
+    api: api.midominio.com
+    app: app.midominio.com
+
+# Backend/Frontend (igual que tu chart)
+env:
+  NEXT_PUBLIC_API: https://api.midominio.com
+  NEXT_PUBLIC_WS: wss://api.midominio.com/ws
+  PORT: "8080"
+  CORS_ORIGIN: https://app.midominio.com
+  JWT_ACCESS_SECRET: ""     # usar ExternalSecrets/SealedSecrets
+  JWT_REFRESH_SECRET: ""    # idem
+  DATABASE_URL: postgresql://dialer:strongpass@postgresql.dialer.svc:5432/dialer
+  REDIS_URL: redis://redis.dialer.svc:6379
+  ESL_HOST: dialer-freeswitch-esl.dialer.svc.cluster.local
+  ESL_PORT: "8021"
+  ESL_PASSWORD: ClueCon
+  CDR_INGEST_TOKEN: ""
+
+replicas:
+  backend: 3
+  frontend: 3
+
+# ---------- FreeSWITCH ----------
+freeswitch:
+  enabled: true
+  replicas: 1   # Recomendado 1 por nodo, con SBC delante. Escala horizontal con varios nodos FS.
+  sip:
+    udp: 5060
+    tcp: 5060
+  esl:
+    port: 8021
+  rtp:
+    start: 16384
+    end: 32768
+  conf:
+    configMapName: freeswitch-conf   # creado con --from-file=freeswitch/conf
+  recordings:
+    pvcName: dialer-recordings-pvc   # crea el PVC según tu storageclass
+  nodeSelector:
+    nodepool: "media-rtp"            # pool dedicado a media (opcional)
+  tolerations:
+    - key: "workload"
+      operator: "Equal"
+      value: "media"
+      effect: "NoSchedule"
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchLabels: { app: dialer-freeswitch }
+          topologyKey: kubernetes.io/hostname
+  resources:
+    requests: { cpu: "4000m", memory: "8Gi" }
+    limits:   { cpu: "12000m", memory: "16Gi" }
+  service:
+    esl:
+      enabled: true         # Service ClusterIP sólo para ESL
+
+# ---------- HPA (ejemplo) ----------
+# Puedes poner HPA para backend/frontend; para FS se recomienda escala manual + SBC.
+hpa:
+  backend:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 10
+    cpu:
+      targetAverageUtilization: 70
+  frontend:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 10
+    cpu:
+      targetAverageUtilization: 60
+
+# ---------- ExternalSecrets (opcional) ----------
+# Ejemplo conceptual (no se renderiza aquí): mantén secretos JWT/DB en tu gestor
+externalsecrets:
+  enabled: false
+  provider: aws-secrets-manager
+  jwtAccessKey: "/dialer/prod/jwt_access"
+  jwtRefreshKey: "/dialer/prod/jwt_refresh"
+  databaseUrlKey: "/dialer/prod/database_url"
+  cdrTokenKey: "/dialer/prod/cdr_token"

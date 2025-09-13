@@ -1,0 +1,71 @@
+{{- if .Values.freeswitch.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dialer-freeswitch
+  labels: { app: dialer-freeswitch }
+spec:
+  replicas: {{ .Values.freeswitch.replicas | default 1 }}
+  selector: { matchLabels: { app: dialer-freeswitch } }
+  template:
+    metadata:
+      labels: { app: dialer-freeswitch }
+      annotations:
+        # Reinicia si cambia el ConfigMap de conf (checksum patrón)
+        checksum/freeswitch-conf: {{ include (print .Template.BasePath "/freeswitch-configmap-hash.yaml") . | sha256sum }}
+    spec:
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      nodeSelector:
+        {{- toYaml (.Values.freeswitch.nodeSelector | default dict) | nindent 8 }}
+      tolerations:
+        {{- toYaml (.Values.freeswitch.tolerations | default list) | nindent 8 }}
+      affinity:
+        {{- toYaml (.Values.freeswitch.affinity | default dict) | nindent 8 }}
+      containers:
+        - name: freeswitch
+          image: {{ .Values.image.freeswitch }}
+          imagePullPolicy: IfNotPresent
+          # SIP 5060/udp+tcp, ESL 8021/tcp. RTP es hostNetwork (puertos 16384–32768)
+          ports:
+            - name: sip-udp
+              containerPort: {{ .Values.freeswitch.sip.udp }}
+              protocol: UDP
+            - name: sip-tcp
+              containerPort: {{ .Values.freeswitch.sip.tcp }}
+              protocol: TCP
+            - name: esl
+              containerPort: {{ .Values.freeswitch.esl.port }}
+              protocol: TCP
+          volumeMounts:
+            # Monta todo /etc/freeswitch desde ConfigMap con subPath por fichero
+            - name: fs-conf
+              mountPath: /etc/freeswitch
+            - name: recordings
+              mountPath: /var/recordings
+          resources:
+            {{- toYaml (.Values.freeswitch.resources | default dict) | nindent 12 }}
+          readinessProbe:
+            tcpSocket: { port: {{ .Values.freeswitch.esl.port }} } # ESL como señal mínima
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket: { port: {{ .Values.freeswitch.esl.port }} }
+            initialDelaySeconds: 30
+            periodSeconds: 15
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ "ALL" ]
+      terminationGracePeriodSeconds: 30
+      volumes:
+        # Requiere crear el ConfigMap con tu conf (ver notas abajo)
+        - name: fs-conf
+          projected:
+            sources:
+              - configMap:
+                  name: {{ .Values.freeswitch.conf.configMapName }}
+        - name: recordings
+          persistentVolumeClaim:
+            claimName: {{ .Values.freeswitch.recordings.pvcName }}
+{{- end }}

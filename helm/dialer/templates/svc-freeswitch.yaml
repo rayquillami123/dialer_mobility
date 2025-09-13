@@ -1,0 +1,15 @@
+{{- if and .Values.freeswitch.enabled .Values.freeswitch.service.esl.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: dialer-freeswitch-esl
+  labels: { app: dialer-freeswitch }
+spec:
+  type: ClusterIP
+  selector: { app: dialer-freeswitch }
+  ports:
+    - name: esl
+      port: {{ .Values.freeswitch.esl.port }}
+      targetPort: {{ .Values.freeswitch.esl.port }}
+      protocol: TCP
+{{- end }}
