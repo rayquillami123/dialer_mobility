@@ -42,6 +42,7 @@ services:
       - "5060:5060/udp"
       - "5060:5060/tcp"
       - "16384-32768:16384-32768/udp"
+      - "8021:8021"
     depends_on: [ backend ]
 
   frontend:
