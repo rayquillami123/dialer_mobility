@@ -2,7 +2,6 @@
 'use client';
 
 import {
-  Sidebar,
   SidebarContent,
   SidebarHeader,
   SidebarMenu,
@@ -11,7 +10,6 @@ import {
   SidebarFooter,
   SidebarGroup,
 } from '@/components/ui/sidebar';
-import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import {
   Home,
@@ -23,7 +21,6 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useSidebarStore } from '@/store/sidebar';
 import { Logo } from '@/components/icons';
 
 const mainNav = [
@@ -39,11 +36,9 @@ const adminNav = [
 
 export default function DialerSidebar() {
   const pathname = usePathname();
-  const activeSection = useSidebarStore((s) => s.activeSection);
-  const setActiveSection = useSidebarStore((s) => s.setActiveSection);
 
   const isActive = (href: string) => {
-    return pathname === href || activeSection === href.replace('/', '');
+    return pathname === href;
   };
 
   return (
@@ -61,7 +56,6 @@ export default function DialerSidebar() {
               <Link href={item.href} legacyBehavior passHref>
                 <SidebarMenuButton
                   isActive={isActive(item.href)}
-                  onClick={() => setActiveSection(item.href.replace('/', ''))}
                   tooltip={item.label}
                 >
                   <item.icon />
@@ -79,7 +73,6 @@ export default function DialerSidebar() {
                 <Link href={item.href} legacyBehavior passHref>
                   <SidebarMenuButton
                     isActive={isActive(item.href)}
-                    onClick={() => setActiveSection(item.href.replace('/', ''))}
                     tooltip={item.label}
                   >
                     <item.icon />
@@ -92,7 +85,6 @@ export default function DialerSidebar() {
         </SidebarGroup>
       </SidebarContent>
       <SidebarFooter>
-        <Button variant="ghost">Footer Action</Button>
       </SidebarFooter>
     </>
   );

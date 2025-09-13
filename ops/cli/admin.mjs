@@ -6,9 +6,10 @@ const args = process.argv.slice(2);
 const API = getArg('--api') || process.env.DIALER_API || 'http://localhost:8080';
 const email = getArg('-e') || getArg('--email');
 const pass  = getArg('-p') || getArg('--password');
-let tenantId = getArg('-t') || getArg('--tenant-id');
+const tenant = getArg('-t') || getArg('--tenant');
 const role = getArg('-r') || getArg('--role'); // admin|supervisor|agent
-const target = getArg('--target'); // email del usuario objetivo
+const targetEmail = getArg('--target'); // email del usuario objetivo
+const inviteEmail = getArg('--invite');
 
 let accessToken = null;
 let cookies = '';
@@ -19,34 +20,36 @@ async function main() {
   const cmd = args[0];
   if (!cmd) return help(0);
 
-  if (cmd !== 'login') {
-    require(email && pass, `Comando '${cmd}' requiere login con -e y -p`);
+  // Comandos que no requieren login
+  if (cmd === 'login') {
+    require(email && pass, 'login requiere -e y -p');
     await login(email, pass);
+    console.log('Login OK como', email);
+    return;
   }
 
-  switch (cmd) {
-    case 'login':
-      require(email && pass, 'login requiere -e y -p');
-      await login(email, pass);
-      console.log('Login OK como', email);
-      break;
+  // Todos los demás comandos requieren login
+  require(email && pass, `El comando '${cmd}' requiere autenticación con -e y -p.`);
+  await login(email, pass);
 
+  switch (cmd) {
     case 'invite-user':
-      require(getArg('--invite'), 'invite-user requiere --invite <email>');
-      await inviteUser(getArg('--invite'), role || 'viewer');
+      require(tenant && inviteEmail, 'invite-user requiere -t y --invite <email>');
+      await inviteUser(inviteEmail, [getArg('--role') || 'viewer']);
       break;
 
     case 'set-role':
-      require(target && role, 'set-role requiere --target <email> y -r <rol>');
-      await setRole(target, role);
+      require(tenant && targetEmail && role, 'set-role requiere -t, --target y -r (admin|supervisor|agent|viewer)');
+      await setRole(targetEmail, [role]);
       break;
 
     case 'disable-user':
-      require(target, 'disable-user requiere --target <email>');
-      await disableUser(target);
+      require(tenant && targetEmail, 'disable-user requiere -t y --target');
+      await disableUser(targetEmail);
       break;
 
     case 'list-users':
+      require(tenant, 'list-users requiere -t');
       await listUsers();
       break;
 
@@ -60,21 +63,20 @@ function help(code=0){
 Dialer Admin CLI
 Uso básico (API: ${API}):
 
-  # Iniciar sesión (necesario para otros comandos)
-  node ops/cli/admin.mjs --api https://api.midominio.com login -e admin@empresa.com -p '*****'
+  # Iniciar sesión (obtiene y guarda tokens para los demás comandos)
+  node ops/cli/admin.mjs --api ${API} login -e <admin_email> -p '<password>'
 
-  # (Los siguientes comandos reusan la sesión)
-  # Invitar usuario
-  node ops/cli/admin.mjs --api ... invite-user -e admin@... -p '...' --invite agente@acme.com -r agent
+  # Invitar usuario a un tenant
+  node ops/cli/admin.mjs --api ${API} invite-user -e <admin> -p '...' -t MobilityTech --invite nuevo.agente@example.com --role agent
 
-  # Asignar rol
-  node ops/cli/admin.mjs --api ... set-role -e admin@... -p '...' --target agente@acme.com -r supervisor
+  # Cambiar el rol de un usuario
+  node ops/cli/admin.mjs --api ${API} set-role -e <admin> -p '...' -t MobilityTech --target nuevo.agente@example.com -r supervisor
 
-  # Desactivar usuario
-  node ops/cli/admin.mjs --api ... disable-user -e admin@... -p '...' --target agente@acme.com
+  # Desactivar un usuario
+  node ops/cli/admin.mjs --api ${API} disable-user -e <admin> -p '...' -t MobilityTech --target nuevo.agente@example.com
 
-  # Listar usuarios
-  node ops/cli/admin.mjs --api ... list-users -e admin@... -p '...'
+  # Listar todos los usuarios del tenant
+  node ops/cli/admin.mjs --api ${API} list-users -e <admin> -p '...' -t MobilityTech
 `);
   process.exit(code);
 }
@@ -82,59 +84,64 @@ Uso básico (API: ${API}):
 function require(cond, msg){ if(!cond){ console.error('Error:', msg); process.exit(1);} }
 
 async function login(email, password){
-  const data = await fetchJSON('/api/auth/login', {
+  const res = await fetchJSON('/api/auth/login', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ email, password })
   }, { captureCookies: true });
-  
-  accessToken = data.accessToken || data.access_token;
-  if (!accessToken) throw new Error('No se recibió accessToken');
-  tenantId = data.user?.tenant_id;
+
+  accessToken = res.accessToken ?? res.access_token;
+  if (!accessToken) throw new Error('No se recibió accessToken en el login');
 }
 
 async function findUserIdByEmail(email) {
-  const users = await authedFetchJSON('/api/users');
+  const users = await authedFetchJSON(`/api/users`);
   const user = (users.items || []).find(u => u.email === email);
-  if (!user) throw new Error(`Usuario ${email} no encontrado en el tenant.`);
+  if (!user) throw new Error(`Usuario con email '${email}' no encontrado en el tenant.`);
   return user.id;
 }
 
-async function inviteUser(userEmail, userRole){
+
+async function inviteUser(userEmail, roles){
   const body = await authedFetchJSON(`/api/users/invite`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ email: userEmail, roles: [userRole] })
+    body: JSON.stringify({ email: userEmail, roles })
   });
   console.log('Invitación creada:', body);
 }
 
-async function setRole(userEmail, newRole){
-  const uid = await findUserIdByEmail(userEmail);
-  const body = await authedFetchJSON(`/api/users/${uid}/roles`, {
+async function setRole(userEmail, newRoles){
+  const userId = await findUserIdByEmail(userEmail);
+  const body = await authedFetchJSON(`/api/users/${userId}/roles`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ roles: [newRole] })
+    body: JSON.stringify({ roles: newRoles })
   });
-  console.log(`Rol de ${userEmail} actualizado a ${newRole}:`, body);
+  console.log('Roles actualizados:', body);
 }
 
 async function disableUser(userEmail){
-  const uid = await findUserIdByEmail(userEmail);
-  const body = await authedFetchJSON(`/api/users/${uid}/deactivate`, {
+  const userId = await findUserIdByEmail(userEmail);
+  const body = await authedFetchJSON(`/api/users/${userId}/deactivate`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({})
   });
-  console.log(`Usuario ${userEmail} desactivado:`, body);
+  console.log('Usuario desactivado:', body);
 }
 
 async function listUsers(){
   const body = await authedFetchJSON(`/api/users`);
   console.table((body.items||[]).map(u => ({
-    id: u.id, email: u.email, name: u.name, roles: u.roles.join(','), active: u.is_active
+    id: u.id,
+    email: u.email,
+    name: u.name || '—',
+    roles: (u.roles||[]).join(', '),
+    is_active: u.is_active,
   })));
 }
+
+/* --- helpers HTTP con reintentos exponenciales --- */
 
 async function fetchJSON(path, init={}, opts={}){
   const url = path.startsWith('http') ? path : `${API}${path}`;
@@ -146,6 +153,7 @@ async function fetchJSON(path, init={}, opts={}){
     },
     redirect: 'manual',
   });
+
   const setCookie = res.headers.get('set-cookie');
   if (opts.captureCookies && setCookie) cookies = mergeCookies(cookies, setCookie);
   if (!res.ok) {
@@ -186,7 +194,7 @@ async function authedFetchJSON(path, init={}, retry=0){
 
 async function refresh(){
   const res = await fetchJSON('/api/auth/refresh', { method:'POST' }, { captureCookies:true });
-  accessToken = res.accessToken || res.access_token;
+  accessToken = res.accessToken ?? res.access_token;
   if (!accessToken) throw new Error('refresh: sin accessToken');
 }
 
