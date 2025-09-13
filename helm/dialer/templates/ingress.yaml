@@ -1,0 +1,34 @@
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: dialer
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "75"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "75"
+    nginx.ingress.kubernetes.io/affinity: "cookie"
+    nginx.ingress.kubernetes.io/session-cookie-name: "ws_affinity"
+    nginx.ingress.kubernetes.io/session-cookie-path: "/ws"
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  tls:
+  - hosts: [{{ .Values.ingress.hosts.api }}, {{ .Values.ingress.hosts.app }}]
+    secretName: {{ .Values.ingress.tlsSecret }}
+  rules:
+  - host: {{ .Values.ingress.hosts.api }}
+    http:
+      paths:
+      - path: /api
+        pathType: Prefix
+        backend: { service: { name: dialer-backend, port: { number: 8080 } } }
+      - path: /ws
+        pathType: Prefix
+        backend: { service: { name: dialer-backend, port: { number: 8080 } } }
+  - host: {{ .Values.ingress.hosts.app }}
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend: { service: { name: dialer-frontend, port: { number: 3000 } } }
+{{- end }}

@@ -1,0 +1,41 @@
+image:
+  backend: ghcr.io/ORG/dialer-backend:latest
+  frontend: ghcr.io/ORG/dialer-frontend:latest
+  freeswitch: signalwire/freeswitch
+
+ingress:
+  enabled: true
+  className: nginx
+  tlsSecret: tls-dialer
+  hosts:
+    api: api.tudominio.com
+    app: app.tudominio.com
+
+env:
+  NEXT_PUBLIC_API: https://api.tudominio.com
+  NEXT_PUBLIC_WS: wss://api.tudominio.com/ws
+  PORT: "8080"
+  CORS_ORIGIN: https://app.tudominio.com
+
+  # Completa secretos vía Secret/values extra (SealedSecrets o ExternalSecrets recomendado)
+  JWT_ACCESS_SECRET: ""
+  JWT_REFRESH_SECRET: ""
+  DATABASE_URL: postgresql://dialer:strongpass@postgres:5432/dialer
+  REDIS_URL: redis://redis:6379
+  ESL_HOST: freeswitch
+  ESL_PORT: "8021"
+  ESL_PASSWORD: ClueCon
+  CDR_INGEST_TOKEN: ""
+
+replicas:
+  backend: 2
+  frontend: 2
+
+freeswitch:
+  enabled: false   # true si quieres FS en el mismo cluster para demos
+  sip:
+    udp: 5060
+    tcp: 5060
+  rtp:
+    start: 16384
+    end: 32768

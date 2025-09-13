@@ -1,0 +1,60 @@
+name: release
+on:
+  push:
+    tags: ['v*.*.*']
+permissions:
+  contents: write
+  id-token: write
+  packages: write
+jobs:
+  build-sign-sbom:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - uses: docker/setup-buildx-action@v3
+    - uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Build backend
+      uses: docker/build-push-action@v5
+      with:
+        context: ./backend
+        push: true
+        tags: ghcr.io/${{ github.repository_owner }}/dialer-backend:${{ github.ref_name }}
+
+    - name: Build frontend
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./Dockerfile.frontend
+        push: true
+        tags: ghcr.io/${{ github.repository_owner }}/dialer-frontend:${{ github.ref_name }}
+
+    - name: Install cosign & syft
+      uses: sigstore/cosign-installer@v3
+    - run: curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
+
+    - name: Sign images (keyless)
+      env:
+        COSIGN_EXPERIMENTAL: "true"
+      run: |
+        cosign sign ghcr.io/${{ github.repository_owner }}/dialer-backend:${{ github.ref_name }}
+        cosign sign ghcr.io/${{ github.repository_owner }}/dialer-frontend:${{ github.ref_name }}
+
+    - name: Generate SBOMs
+      run: |
+        syft ghcr.io/${{ github.repository_owner }}/dialer-backend:${{ github.ref_name }} -o spdx-json > backend-sbom.spdx.json
+        syft ghcr.io/${{ github.repository_owner }}/dialer-frontend:${{ github.ref_name }} -o spdx-json > frontend-sbom.spdx.json
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ github.ref_name }}
+        name: "Dialer ${{ github.ref_name }}"
+        files: |
+          backend-sbom.spdx.json
+          frontend-sbom.spdx.json
