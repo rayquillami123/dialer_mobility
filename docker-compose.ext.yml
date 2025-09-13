@@ -1,0 +1,38 @@
+version: "3.9"
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: dialer
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-strongpass}
+      POSTGRES_DB: dialer
+    volumes: [ "pgdata:/var/lib/postgresql/data" ]
+
+  redis:
+    image: redis:7
+    command: ["redis-server","--appendonly","yes"]
+    volumes: [ "redis:/data" ]
+
+  backend:
+    build: ./backend
+    env_file: .env
+    environment:
+      PORT: 8080
+      ESL_HOST: ${ESL_HOST}           # <- FusionPBX o Issabel/Asterisk
+      ESL_PORT: ${ESL_PORT:-8021}
+      ESL_PASSWORD: ${ESL_PASSWORD}
+      CDR_INGEST_TOKEN: ${CDR_INGEST_TOKEN}
+    ports: [ "8080:8080" ]
+    depends_on: [ postgres, redis ]
+
+  frontend:
+    build:
+      context: .
+      dockerfile: ./Dockerfile.frontend
+    env_file: .env
+    ports: [ "3000:3000" ]
+    depends_on: [ backend ]
+
+volumes:
+  pgdata: {}
+  redis: {}

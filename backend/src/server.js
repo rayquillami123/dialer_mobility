@@ -16,6 +16,7 @@ import { router as recordings } from './routes/recordings.js';
 import { router as auth } from './routes/auth.js';
 import { bearerOrApiKey, authenticate } from './mw/authz.js';
 import { router as users } from './routes/users.js';
+import integrations from './routes/integrations.js';
 import jwt from 'jsonwebtoken';
 import url from 'node:url';
 import promBundle from 'express-prom-bundle';
@@ -66,6 +67,7 @@ app.use('/api/reports', reports);
 app.use('/api/providers', providers);
 app.use('/api/dids', dids);
 app.use('/api/recordings', recordings);
+app.use('/api/integrations', integrations);
 
 
 // WS

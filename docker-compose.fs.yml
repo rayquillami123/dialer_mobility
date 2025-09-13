@@ -7,35 +7,42 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-strongpass}
       POSTGRES_DB: dialer
     volumes: [ "pgdata:/var/lib/postgresql/data" ]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dialer -d dialer"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
 
   redis:
     image: redis:7
     command: ["redis-server","--appendonly","yes"]
     volumes: [ "redis:/data" ]
 
+  backend:
+    build: ./backend
+    env_file: .env
+    environment:
+      PORT: 8080
+      ESL_HOST: ${ESL_HOST:-freeswitch}
+      ESL_PORT: ${ESL_PORT:-8021}
+      ESL_PASSWORD: ${ESL_PASSWORD:-ClueCon}
+      CDR_INGEST_TOKEN: ${CDR_INGEST_TOKEN}
+    ports: [ "8080:8080" ]
+    depends_on: [ postgres, redis ]
+
   freeswitch:
     image: signalwire/freeswitch
     environment:
       SOUND_PREFIX: /usr/share/freeswitch/sounds/en/us/callie
     volumes:
-      - ./freeswitch/conf:/etc/freeswitch      # <- tus configs
+      - ./freeswitch/conf:/etc/freeswitch
       - recordings:/var/recordings
     network_mode: bridge
     ports:
-      - "5060:5060/udp"    # si deseas exponer SIP directo (opcional)
+      - "5060:5060/udp"
       - "5060:5060/tcp"
-      - "16384-32768:16384-32768/udp"  # RTP (si sin SBC)
+      - "16384-32768:16384-32768/udp"
     depends_on: [ backend ]
-
-  backend:
-    build: ./backend
-    env_file: .env
-    environment:
-      ESL_HOST: ${ESL_HOST:-freeswitch}
-      ESL_PORT: ${ESL_PORT:-8021}
-      ESL_PASSWORD: ${ESL_PASSWORD:-ClueCon}
-    ports: [ "8080:8080" ]
-    depends_on: [ postgres, redis ]
 
   frontend:
     build:
@@ -45,4 +52,7 @@ services:
     ports: [ "3000:3000" ]
     depends_on: [ backend ]
 
-volumes: { pgdata: {}, redis: {}, recordings: {} }
+volumes:
+  pgdata: {}
+  redis: {}
+  recordings: {}
