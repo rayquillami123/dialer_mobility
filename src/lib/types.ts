@@ -21,4 +21,9 @@ export interface Campaign {
   id: number;
   name: string;
   status: 'running' | 'paused' | 'stopped';
+  type: string;
+  pacing: number;
+  max_channels: number;
+  abandon_cap: number;
+  queue: string;
 }

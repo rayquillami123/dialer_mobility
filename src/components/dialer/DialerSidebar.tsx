@@ -18,6 +18,7 @@ import {
   Briefcase,
   Zap,
   LayoutGrid,
+  Target,
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -25,6 +26,7 @@ import { Logo } from '@/components/icons';
 
 const mainNav = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutGrid },
+  { href: '/campaigns', label: 'Campaigns', icon: Target },
   { href: '/trunks', label: 'Trunks', icon: Briefcase },
   { href: '/integrations', label: 'Integrations', icon: Zap },
 ];
