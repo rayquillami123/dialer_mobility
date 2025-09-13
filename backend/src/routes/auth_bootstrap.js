@@ -1,5 +1,6 @@
 import express from "express";
 import bcrypt from "bcrypt";
+import { bootstrapInvocationsTotal } from '../metrics/custom.js';
 
 export default function makeBootstrapRouter(db) {
   const router = express.Router();
@@ -15,6 +16,7 @@ export default function makeBootstrapRouter(db) {
   router.post("/bootstrap", async (req, res) => {
     const hdr = req.headers["x-bootstrap-token"];
     if (!hdr || hdr !== process.env.BOOTSTRAP_TOKEN) {
+      bootstrapInvocationsTotal.inc({ result: "invalid_token" });
       return res.status(401).json({ error: "invalid bootstrap token" });
     }
     const { tenantName="Default Tenant", adminEmail, adminPassword, roles=["admin"] } = req.body || {};
@@ -30,6 +32,7 @@ export default function makeBootstrapRouter(db) {
       const f = await client.query(`SELECT value FROM app_flags WHERE key='bootstrap' FOR UPDATE`);
       if (f.rows.length && f.rows[0].value?.used === true) {
         await client.query("ROLLBACK");
+        bootstrapInvocationsTotal.inc({ result: "already_used" });
         return res.status(409).json({ error: "bootstrap already used" });
       }
 
@@ -79,10 +82,12 @@ export default function makeBootstrapRouter(db) {
       );
 
       await client.query("COMMIT");
+      bootstrapInvocationsTotal.inc({ result: "success" });
       return res.json({ ok: true, tenantId, adminEmail, roles });
     } catch (e) {
       await client.query("ROLLBACK");
       console.error(e);
+      bootstrapInvocationsTotal.inc({ result: "error" });
       return res.status(500).json({ error: "bootstrap failed" });
     } finally {
       client.release();

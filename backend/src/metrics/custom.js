@@ -15,3 +15,9 @@ export const abandonmentWeighted = new client.Gauge({
   help: 'Abandono ponderado (0..100) ventana corta',
   labelNames: ['tenant_id']
 });
+
+export const bootstrapInvocationsTotal = new client.Counter({
+  name: "bootstrap_invocations_total",
+  help: "Veces que se intentó usar /auth/bootstrap",
+  labelNames: ["result"] // success|already_used|invalid_token|error
+});

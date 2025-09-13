@@ -68,8 +68,10 @@ app.use(audit(db));
 app.use('/api/auth/login', loginLimiter);
 app.use('/api/', apiLimiter);
 
-// RUTA PÚBLICA SÓLO PARA BOOTSTRAP
-app.use("/api/auth", makeBootstrapRouter(db));
+// RUTA PÚBLICA SÓLO PARA BOOTSTRAP (controlado por var de entorno)
+if (process.env.DISABLE_BOOTSTRAP !== "true") {
+  app.use("/api/auth", makeBootstrapRouter(db));
+}
 
 // Auth Bearer simple (excepto /cdr que idealmente aseguras por IP/Nginx)
 app.use(bearerOrApiKey);
